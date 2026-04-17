@@ -22,8 +22,15 @@ use groups::stream::StreamCmd;
 
 #[tokio::main]
 async fn main() {
-    // Try to build full CLI (with dynamic API groups) — fall back to static-only if no spec
-    let registry = SchemaRegistry::new().ok();
+    // Cold start: if we have no cached spec yet, fetch it synchronously so the
+    // first invocation exposes the full command surface. Without this, a fresh
+    // `cdcx --help` would show only the static commands (schema, stream, setup,
+    // mcp, paper, tui) and silently omit the ~80 API commands — a bad first
+    // impression that forced users to discover `cdcx schema update` manually.
+    let registry = match SchemaRegistry::new() {
+        Ok(r) => Some(r),
+        Err(_) => fetch_schema_sync().await,
+    };
     let app = if let Some(ref reg) = registry {
         cli_builder::build_cli(reg)
     } else {
@@ -31,7 +38,8 @@ async fn main() {
     };
     let matches = app.get_matches();
 
-    // Background refresh of OpenAPI spec if cache is stale
+    // Background refresh of OpenAPI spec if the cache is stale (warm start).
+    // Fire-and-forget: the refresh effective the next run, keeps this run fast.
     {
         let fetcher = cdcx_core::openapi::fetcher::SpecFetcher::default();
         if !fetcher.cache_is_fresh() {
@@ -178,5 +186,45 @@ async fn main() {
             }
         }
         None => unreachable!("subcommand_required is set"),
+    }
+}
+
+/// Fetch the OpenAPI spec synchronously with a short timeout and user-visible
+/// progress. Only called on true cold start (no cache). Returns `None` if the
+/// network fetch fails or times out — caller falls back to the static CLI and
+/// prints a hint so users know how to recover manually.
+async fn fetch_schema_sync() -> Option<SchemaRegistry> {
+    const TIMEOUT_SECS: u64 = 10;
+
+    eprintln!("Fetching API schema (first run, one-time download)...");
+
+    let fetcher = cdcx_core::openapi::fetcher::SpecFetcher::default();
+    let fetch = fetcher.fetch_remote();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(TIMEOUT_SECS), fetch).await;
+
+    match result {
+        Ok(Ok(spec)) => {
+            if let Ok(parsed) = cdcx_core::openapi::parser::parse_openapi_spec(&spec) {
+                let _ = fetcher.write_cache(&spec);
+                let _ = fetcher.write_meta(parsed.endpoints.len());
+            }
+            SchemaRegistry::new().ok()
+        }
+        Ok(Err(e)) => {
+            eprintln!(
+                "Warning: couldn't download API schema ({}). Only built-in commands are available.",
+                e
+            );
+            eprintln!("Retry once you have network, or run `cdcx schema update` manually.");
+            None
+        }
+        Err(_) => {
+            eprintln!(
+                "Warning: schema download timed out after {}s. Only built-in commands are available.",
+                TIMEOUT_SECS
+            );
+            eprintln!("Retry once you have network, or run `cdcx schema update` manually.");
+            None
+        }
     }
 }
