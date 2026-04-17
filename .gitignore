@@ -1,0 +1,40 @@
+# Worktrees
+.worktrees/
+
+# Rust
+/target/
+**/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# GitNexus
+.gitnexus/
+.claude/skills/gitnexus/
+/CLAUDE.md
+/AGENTS.md
+
+# Serena
+.serena/
+
+# Local planning
+.plans/
+
+# Superpowers brainstorming
+.superpowers/
+.worktrees/
+
+# Claude worktrees
+.claude/worktrees/
+
+# Superpowers docs (plans, specs, feedbacks)
+docs/superpowers/
+docs/feedbacks/
+
+.playwright-mcp

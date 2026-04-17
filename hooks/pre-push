@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# cdcx pre-push hook: full test suite. Slower gate that matches CI's
+# `cargo test --locked --all-features`. Skips if no Rust changes since
+# last push to keep doc-only pushes fast.
+set -euo pipefail
+
+remote="$1"
+url="$2"
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+        continue
+    fi
+
+    if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+        range="$local_sha"
+    else
+        range="$remote_sha..$local_sha"
+    fi
+
+    if ! git diff --name-only "$range" 2>/dev/null | grep -qE '\.(rs|toml|lock)$|^Cargo|^rust-toolchain'; then
+        echo "[pre-push] no Rust changes in $range — skipping tests"
+        continue
+    fi
+
+    echo "[pre-push] cargo test --locked --all-features"
+    cargo test --locked --all-features
+done
+
+echo "[pre-push] ok"

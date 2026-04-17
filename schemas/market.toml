@@ -1,0 +1,10 @@
+[group]
+name = "market"
+
+[[endpoints]]
+method = "public/get-risk-parameters"
+command = "risk-params"
+
+[[endpoints]]
+method = "public/get-expired-settlement-price"
+command = "settlement-prices"

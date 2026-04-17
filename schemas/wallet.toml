@@ -1,0 +1,22 @@
+[group]
+name = "wallet"
+
+[[endpoints]]
+method = "private/create-withdrawal"
+command = "withdraw"
+
+[[endpoints.params]]
+name = "currency"
+position = 0
+
+[[endpoints.params]]
+name = "amount"
+position = 1
+
+[[endpoints.params]]
+name = "address"
+position = 2
+
+[[endpoints]]
+method = "private/get-currency-networks"
+command = "networks"

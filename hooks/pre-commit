@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# cdcx pre-commit hook: fmt + clippy. Fast gates that catch the issues
+# our CI has historically rejected. Tests run on pre-push instead.
+set -euo pipefail
+
+echo "[pre-commit] cargo fmt --all --check"
+cargo fmt --all --check
+
+echo "[pre-commit] cargo clippy --locked --all-features -- -D warnings"
+cargo clippy --locked --all-features -- -D warnings
+
+echo "[pre-commit] ok"

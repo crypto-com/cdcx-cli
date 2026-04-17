@@ -1,0 +1,6 @@
+[group]
+name = "history"
+
+[[endpoints]]
+method = "private/get-order-history"
+command = "orders"

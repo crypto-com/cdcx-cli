@@ -1,0 +1,17 @@
+[group]
+name = "advanced"
+
+[[endpoints]]
+method = "private/advanced/amend-order"
+
+[[endpoints.params]]
+name = "new_price"
+required = true
+
+[[endpoints]]
+method = "private/advanced/create-oto"
+command = "create-oto"
+
+[[endpoints]]
+method = "private/advanced/create-otoco"
+command = "create-otoco"

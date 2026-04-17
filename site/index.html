@@ -1,0 +1,634 @@
+<!-- One file. Zero dependencies. Just like the tool. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cdcx — Crypto.com Exchange Terminal</title>
+<meta name="description" content="Agent-first CLI for the Crypto.com Exchange. 86 endpoints, real-time streaming, interactive TUI dashboard. One binary. Zero dependencies.">
+<meta property="og:title" content="cdcx — Crypto.com Exchange Terminal">
+<meta property="og:description" content="A trading floor in your terminal. Built with Rust.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="img/tui-market.png">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0f;--fg:#c8c8c8;--amber:#ffb400;--green:#00e87b;--red:#ff4444;
+  --cyan:#0af;--muted:#555;--border:#1a1a1a;--surface:#0d0d10;
+  --font:'IBM Plex Mono',Courier New,monospace;
+}
+html{font-size:15px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.6;overflow-x:hidden}
+body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;opacity:0.03;z-index:9999;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+#install-bar{position:fixed;top:0;left:0;right:0;height:36px;background:rgba(10,10,15,0.95);border-bottom:1px solid var(--amber);z-index:1000;display:flex;align-items:center;justify-content:center;gap:12px;font-size:12px;backdrop-filter:blur(8px)}
+#install-bar code{color:var(--amber);background:rgba(255,180,0,0.08);padding:2px 10px;border-radius:2px;user-select:all;letter-spacing:0.5px}
+#install-bar button{background:var(--amber);color:#000;border:none;padding:3px 14px;font-family:var(--font);font-size:11px;font-weight:700;cursor:pointer;letter-spacing:1px;text-transform:uppercase}
+#install-bar button:hover{background:#ffc940}
+#install-bar .copied{color:var(--green);font-size:11px;display:none}
+.section{max-width:900px;margin:0 auto;padding:80px 24px}
+.section:first-of-type{padding-top:120px}
+.micro{color:var(--amber);font-size:10px;letter-spacing:4px;text-transform:uppercase;font-weight:700;margin-bottom:8px}
+.section h2{color:#fff;font-size:28px;font-weight:700;margin-bottom:12px;letter-spacing:-0.5px}
+.section p.desc{color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:32px;max-width:600px}
+.section p.desc strong{color:var(--fg)}
+.term{background:var(--surface);border:1px solid var(--border);margin:32px 0;position:relative;overflow:hidden}
+.term::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.08) 2px,rgba(0,0,0,0.08) 4px);z-index:1}
+.term-header{padding:8px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.term-dot{width:8px;height:8px;border-radius:50%;background:#333}
+.term-dot.r{background:#ff5f57}.term-dot.y{background:#ffbd2e}.term-dot.g{background:#28c840}
+.term-body{padding:16px 20px;font-size:13px;line-height:1.5;overflow-x:auto;position:relative;z-index:2;min-height:60px;white-space:pre}
+.term-body .prompt{color:var(--amber)}
+.term-body .cmd{color:#fff}
+.term-body .g{color:var(--green)}.term-body .r{color:var(--red)}.term-body .c{color:var(--cyan)}
+.term-body .m{color:var(--muted)}.term-body .a{color:var(--amber)}.term-body .w{color:#fff}
+.term-glow{box-shadow:0 0 40px rgba(255,180,0,0.06),0 0 80px rgba(255,180,0,0.03)}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:24px}
+.feat{border:1px solid var(--border);padding:16px;background:rgba(255,180,0,0.02)}
+.feat h4{color:var(--amber);font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+.feat p{color:var(--muted);font-size:12px;line-height:1.5}
+.cmd-ref{margin-top:24px;font-size:12px}
+.cmd-ref code{color:var(--amber);background:rgba(255,180,0,0.08);padding:1px 6px}
+.cmd-ref td{padding:4px 16px 4px 0;vertical-align:top;border-bottom:1px solid var(--border)}
+.cmd-ref td:first-child{white-space:nowrap}
+.themes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:24px}
+.theme-card{border:1px solid var(--border);overflow:hidden}
+.theme-card .preview{padding:12px 16px;font-size:11px;line-height:1.4;white-space:pre}
+.theme-card .name{padding:8px 16px;font-size:11px;color:var(--muted);border-top:1px solid var(--border);letter-spacing:2px;text-transform:uppercase}
+.divider{max-width:900px;margin:0 auto;padding:0 24px}
+.divider hr{border:none;border-top:2px solid var(--border);margin:0}
+#hero{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:36px 24px}
+#hero-term{width:100%;max-width:720px}
+#hero .term{border-color:var(--amber);box-shadow:0 0 60px rgba(255,180,0,0.08),0 0 120px rgba(255,180,0,0.04)}
+#hero .term-body{min-height:300px}
+#hero-cursor{display:inline-block;width:8px;height:16px;background:var(--amber);animation:blink 1s step-end infinite;vertical-align:middle}
+@keyframes blink{50%{opacity:0}}
+.screenshot{width:100%;border:1px solid var(--border);margin:24px 0;box-shadow:0 0 30px rgba(255,180,0,0.04)}
+.screenshot img{width:100%;display:block}
+.screenshot-label{font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;padding:6px 12px;border-top:1px solid var(--border);background:var(--surface)}
+footer{max-width:900px;margin:0 auto;padding:60px 24px 40px;text-align:center;font-size:12px;color:var(--muted)}
+footer a{color:var(--amber);text-decoration:none}
+footer a:hover{text-decoration:underline}
+footer .tagline{color:#fff;font-size:16px;margin-bottom:16px;font-weight:700}
+.keys{margin-top:16px;font-size:12px}
+.keys td{padding:3px 12px 3px 0;border-bottom:1px solid var(--border)}
+.keys td:first-child{color:var(--amber);font-weight:700;white-space:nowrap}
+@media(max-width:600px){
+  .section h2{font-size:22px}
+  .term-body{font-size:11px;padding:12px}
+  #install-bar code{display:none}
+}
+</style>
+</head>
+<body>
+
+<div id="install-bar">
+  <code id="install-cmd">curl -sSfL https://raw.githubusercontent.com/crypto-com/cdcx-cli/main/install.sh | sh</code>
+  <button id="copy-btn">COPY</button>
+  <span class="copied" id="copied-msg">Copied!</span>
+</div>
+
+<div id="hero">
+  <div id="hero-term">
+    <div class="term term-glow">
+      <div class="term-header">
+        <span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span>
+        <span>cdcx</span>
+      </div>
+      <div class="term-body" id="hero-output"><span id="hero-cursor"></span></div>
+    </div>
+  </div>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">WHY CDCX?</div>
+  <h2>Three tools. One binary.</h2>
+
+  <div class="features" style="margin-bottom:32px">
+    <div class="feat">
+      <h4>FOR AI AGENTS</h4>
+      <p>86 MCP tools with typed parameters, safety enforcement, and schema discovery. 12 agent skill files. Works with Claude, GPT, Copilot, Gemini, and any MCP client.</p>
+    </div>
+    <div class="feat">
+      <h4>FOR THE COMMAND LINE</h4>
+      <p>86 REST endpoints across 10 API groups. --help on everything. --dry-run to preview. --output json for scripts. Profiles for multi-account. Paper trading.</p>
+    </div>
+    <div class="feat">
+      <h4>FOR THE DASHBOARD</h4>
+      <p>Full-screen TUI with streaming data, candlestick charts, heatmap, split screen, order workflows. Toggle between LIVE and PAPER mode with one key.</p>
+    </div>
+  </div>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">MARKET DATA</div>
+  <h2>Every market. One command.</h2>
+  <p class="desc">86 endpoints from the Crypto.com Exchange API. <strong>Tickers, order books, trades, candlesticks, instruments</strong> — all accessible as simple CLI commands with table or JSON output.</p>
+  <div class="term">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> market data</div>
+    <div class="term-body"><span class="prompt">$</span> <span class="cmd">cdcx market ticker -o table</span>
+
+<span class="m">INSTRUMENT  LAST       BID        ASK        24H        VOLUME</span>
+<span class="w">BTC_USDT    </span><span class="g">70,581.00  70,588.08  70,588.09  +2.57%</span>  <span class="c">5,371 BTC</span>
+<span class="w">ETH_USDT    </span><span class="g"> 2,137.85   2,137.85   2,137.86  +2.67%</span>  <span class="c">109,707 ETH</span>
+<span class="w">SOL_USDT    </span><span class="g">    90.43      90.43      90.44  +3.38%</span>  <span class="c">257,392 SOL</span>
+<span class="w">CRO_USDT    </span><span class="r">     0.074      0.074      0.075  -0.81%</span>  <span class="c">4,812,000 CRO</span></div>
+  </div>
+  <div class="screenshot"><img src="img/cli-ticker.png" alt="cdcx market ticker output" loading="lazy"><div class="screenshot-label">LIVE OUTPUT</div></div>
+
+  <table class="cmd-ref">
+    <tr><td><code>cdcx market ticker BTC_USDT</code></td><td>Live ticker for one instrument</td></tr>
+    <tr><td><code>cdcx market book BTC_USDT</code></td><td>Order book with depth</td></tr>
+    <tr><td><code>cdcx market trades BTC_USDT</code></td><td>Recent trades</td></tr>
+    <tr><td><code>cdcx market candlestick BTC_USDT</code></td><td>OHLCV candlestick data</td></tr>
+    <tr><td><code>cdcx market instruments</code></td><td>All available instruments</td></tr>
+  </table>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">INTERACTIVE DASHBOARD</div>
+  <h2>A trading floor in your terminal.</h2>
+  <p class="desc">Full-screen dashboard with <strong>6 tabs, real-time WebSocket streaming, sparklines, heatmap mode</strong>, and zero flicker. Built with ratatui — character-level double-buffer diffing.</p>
+  <div class="term term-glow">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> cdcx tui</div>
+    <div class="term-body"><span class="a">1:Market</span> <span class="m"> | 2:Portfolio | 3:Orders | 4:History | 5:Watchlist | 6:Positions</span>
+<span class="m">Market: </span><span class="a">[Spot]</span><span class="m"> Perpetual Futures  Sort: </span><span class="a">[Vol&#x2193;]</span>
+
+<span class="m"> #  Instrument     Spark       Price        24h       Volume</span>
+<span class="a">&#x25B8;1</span>  <span class="w">BTC_USDT</span>      <span class="g">&#x2582;&#x2583;&#x2585;&#x2587;&#x2588;&#x2587;&#x2585;&#x2586;&#x2587;&#x2588;</span>  <span class="w">70,581.00</span>  <span class="g">+2.57%</span>   <span class="c">372.5B</span>
+<span class="m"> 2</span>  <span class="w">ETH_USDT</span>      <span class="g">&#x2583;&#x2584;&#x2585;&#x2586;&#x2587;&#x2586;&#x2585;&#x2584;&#x2585;&#x2586;</span>  <span class="w"> 2,137.85</span>  <span class="g">+2.67%</span>   <span class="c">234.6M</span>
+<span class="m"> 3</span>  <span class="w">SOL_USDT</span>      <span class="g">&#x2581;&#x2582;&#x2583;&#x2585;&#x2587;&#x2586;&#x2587;&#x2588;&#x2587;&#x2588;</span>  <span class="w">    90.43</span>  <span class="g">+3.38%</span>   <span class="c"> 23.3M</span>
+<span class="m"> 4</span>  <span class="w">XRP_USDT</span>      <span class="r">&#x2587;&#x2586;&#x2585;&#x2584;&#x2583;&#x2584;&#x2583;&#x2582;&#x2582;&#x2581;</span>  <span class="w">     0.52</span>  <span class="r">-1.20%</span>   <span class="c"> 18.7M</span>
+<span class="m"> 5</span>  <span class="w">DOGE_USDT</span>     <span class="g">&#x2584;&#x2585;&#x2586;&#x2585;&#x2586;&#x2587;&#x2586;&#x2585;&#x2586;&#x2587;</span>  <span class="w">     0.11</span>  <span class="g">+0.89%</span>   <span class="c"> 12.1M</span>
+
+<span class="m">&#x2190;&#x2192;:category  s:sort  /:search  h:heatmap  k:chart  Enter:detail</span>
+<span class="m">PROD</span>  <span class="g">&#x25A0; LIVE</span>  <span class="g">$52,481.30 (+481.30)</span>  <span class="m">Theme: terminal-pro  q:quit  ?:help</span></div>
+  </div>
+  <div class="screenshot"><img src="img/tui-market.png" alt="cdcx tui dashboard" loading="lazy"><div class="screenshot-label">LIVE DASHBOARD</div></div>
+
+  <div class="screenshot"><img src="img/tui-heatmap.png" alt="cdcx tui heatmap mode" loading="lazy"><div class="screenshot-label">HEATMAP MODE (h)</div></div>
+
+  <div class="screenshot"><img src="img/tui-orderbook.png" alt="cdcx order book detail" loading="lazy"><div class="screenshot-label">ORDER BOOK + TRADES (Enter)</div></div>
+
+  <div class="features">
+    <div class="feat"><h4>6 TABS</h4><p>Market, Portfolio, Orders, History, Watchlist, Positions</p></div>
+    <div class="feat"><h4>STREAMING</h4><p>WebSocket ticker, book, candlestick, trade channels. Auto-reconnect.</p></div>
+    <div class="feat"><h4>SPARKLINES</h4><p>24h Braille-dot price charts from real candle data.</p></div>
+    <div class="feat"><h4>HEATMAP</h4><p>Toggle h — rows glow red/green by 24h performance.</p></div>
+    <div class="feat"><h4>SPLIT SCREEN</h4><p>\ splits table + chart. Navigate rows, chart follows.</p></div>
+    <div class="feat"><h4>LIVE P&amp;L</h4><p>Session P&amp;L in the status bar. Portfolio tab shows cash vs positions breakdown with real-time tracking.</p></div>
+    <div class="feat"><h4>PAPER MODE</h4><p>Toggle p — trade against local paper engine with unrealized/realized P&amp;L tracking.</p></div>
+    <div class="feat"><h4>ADVANCED ORDERS</h4><p>o for OCO (stop-loss + take-profit). O for OTOCO (entry + SL + TP).</p></div>
+    <div class="feat"><h4>6 THEMES</h4><p>terminal-pro, cyber-midnight, monochrome, neon, micky-d, amber. Plus custom TOML.</p></div>
+  </div>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">CHARTS &amp; COMPARE</div>
+  <h2>See everything. Miss nothing.</h2>
+  <p class="desc">Candlestick charts with <strong>volume bars, 9 timeframes, streaming updates</strong>. Compare up to 4 instruments side by side.</p>
+  <div class="screenshot"><img src="img/tui-chart.png" alt="cdcx candlestick chart" loading="lazy"><div class="screenshot-label">CANDLESTICK CHART WITH VOLUME &amp; TIME AXIS</div></div>
+
+  <div class="screenshot"><img src="img/tui-compare.png" alt="cdcx compare view" loading="lazy"><div class="screenshot-label">COMPARE VIEW — SIDE BY SIDE</div></div>
+
+  <table class="cmd-ref">
+    <tr><td><code>k</code></td><td>Toggle candlestick chart</td></tr>
+    <tr><td><code>[ / ]</code></td><td>Cycle timeframe (1m, 5m, 15m, 1h, 4h, 1D)</td></tr>
+    <tr><td><code>m</code></td><td>Compare mode — up to 4 instruments</td></tr>
+    <tr><td><code>a / d</code></td><td>Add/remove instruments in compare</td></tr>
+  </table>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">TRADING</div>
+  <h2>Execute from the command line.</h2>
+  <p class="desc">Place orders, cancel, amend — all with <strong>safety confirmations and dry-run preview</strong>. Every dangerous operation requires explicit acknowledgment.</p>
+  <div class="term">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> dry run</div>
+    <div class="term-body"><span class="prompt">$</span> <span class="cmd">cdcx trade create-order BTC_USDT --side BUY --quantity 0.001 \</span>
+<span class="cmd">    --type LIMIT --price 50000 --dry-run</span>
+
+<span class="m">{</span>
+  <span class="c">"dry_run"</span><span class="m">:</span> <span class="g">true</span><span class="m">,</span>
+  <span class="c">"method"</span><span class="m">:</span> <span class="a">"private/create-order"</span><span class="m">,</span>
+  <span class="c">"params"</span><span class="m">:</span> <span class="m">{</span>
+    <span class="c">"instrument_name"</span><span class="m">:</span> <span class="a">"BTC_USDT"</span><span class="m">,</span>
+    <span class="c">"side"</span><span class="m">:</span> <span class="a">"BUY"</span><span class="m">,</span>
+    <span class="c">"type"</span><span class="m">:</span> <span class="a">"LIMIT"</span><span class="m">,</span>
+    <span class="c">"price"</span><span class="m">:</span> <span class="a">"50000"</span><span class="m">,</span>
+    <span class="c">"quantity"</span><span class="m">:</span> <span class="a">"0.001"</span>
+  <span class="m">}</span>
+<span class="m">}</span></div>
+  </div>
+  <div class="features">
+    <div class="feat"><h4>SAFETY TIERS</h4><p>read, sensitive_read, mutate, dangerous. Each with appropriate guardrails.</p></div>
+    <div class="feat"><h4>DRY RUN</h4><p>--dry-run previews the exact API payload without executing.</p></div>
+    <div class="feat"><h4>TUI WORKFLOWS</h4><p>Press t for interactive order placement with instrument picker.</p></div>
+  </div>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">PAPER TRADING</div>
+  <h2>Test before you trade.</h2>
+  <p class="desc">Local paper trading engine with <strong>live market prices</strong>. No auth required. Track positions, unrealized/realized P&amp;L, cash vs position breakdown, and trade history. Available in both CLI and TUI.</p>
+
+  <div class="screenshot"><img src="img/cli-paper.png" alt="cdcx paper trading" loading="lazy"><div class="screenshot-label">PAPER TRADING CLI</div></div>
+
+  <div class="screenshot"><img src="img/tui-paper.png" alt="cdcx paper mode in TUI" loading="lazy"><div class="screenshot-label">TUI PAPER MODE (p)</div></div>
+
+  <table class="cmd-ref">
+    <tr><td><code>cdcx paper init --balance 50000</code></td><td>Create paper account</td></tr>
+    <tr><td><code>cdcx paper buy BTC_USDT --quantity 0.01</code></td><td>Market buy</td></tr>
+    <tr><td><code>cdcx paper sell BTC_USDT --quantity 0.01</code></td><td>Market sell</td></tr>
+    <tr><td><code>cdcx paper positions</code></td><td>Portfolio + live P&amp;L</td></tr>
+    <tr><td><code>cdcx paper balance</code></td><td>Account balance</td></tr>
+    <tr><td><code>cdcx paper reset</code></td><td>Start fresh</td></tr>
+  </table>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">AGENT MODE</div>
+  <h2>Built for AI agents.</h2>
+  <p class="desc">Expose the Exchange API as <strong>MCP tools</strong>. Claude, GPT, or any MCP-compatible agent gets 86 typed, documented tools with safety enforcement — market data, trading, advanced orders, OTC, wallet, staking, fiat, margin.</p>
+  <div class="term">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> mcp server</div>
+    <div class="term-body"><span class="prompt">$</span> <span class="cmd">cdcx mcp --services market,account,trade</span>
+
+<span class="m">MCP server started (stdio transport)</span>
+<span class="m">Services: </span><span class="g">market</span><span class="m">, </span><span class="g">account</span><span class="m">, </span><span class="a">trade</span>
+<span class="m">Tools exposed: </span><span class="w">75</span>
+<span class="m">Safety: mutate requires </span><span class="a">acknowledged: true</span>
+<span class="m">Dangerous operations: </span><span class="r">blocked</span> <span class="m">(use --allow-dangerous)</span></div>
+  </div>
+  <div class="term" style="margin-top:16px">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> config</div>
+    <div class="term-body"><span class="m">// Claude Desktop / MCP client config</span>
+<span class="m">{</span>
+  <span class="c">"mcpServers"</span><span class="m">: {</span>
+    <span class="c">"cdcx"</span><span class="m">: {</span>
+      <span class="c">"command"</span><span class="m">:</span> <span class="a">"cdcx"</span><span class="m">,</span>
+      <span class="c">"args"</span><span class="m">:</span> <span class="m">[</span><span class="a">"mcp"</span><span class="m">,</span> <span class="a">"--services"</span><span class="m">,</span> <span class="a">"market,trade"</span><span class="m">]</span>
+    <span class="m">}</span>
+  <span class="m">}</span>
+<span class="m">}</span></div>
+  </div>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">STREAMING</div>
+  <h2>Real-time. Always.</h2>
+  <p class="desc">WebSocket streaming as <strong>newline-delimited JSON</strong>. Pipe to jq, feed to agents, or just watch the market flow.</p>
+  <div class="term">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> streaming</div>
+    <div class="term-body"><span class="prompt">$</span> <span class="cmd">cdcx stream ticker BTC_USDT ETH_USDT</span>
+
+<span class="m">{"i":"BTC_USDT","a":"70581.00","b":"70580.99","c":"0.0257","t":1774285026}</span>
+<span class="m">{"i":"ETH_USDT","a":"2137.85","b":"2137.84","c":"0.0267","t":1774285027}</span>
+<span class="m">{"i":"BTC_USDT","a":"70582.50","b":"70582.49","c":"0.0257","t":1774285028}</span>
+<span class="m">{"i":"ETH_USDT","a":"2138.10","b":"2138.09","c":"0.0268","t":1774285029}</span>
+<span class="a">&#x25CC;</span></div>
+  </div>
+  <table class="cmd-ref">
+    <tr><td><code>cdcx stream ticker</code></td><td>Stream ticker updates</td></tr>
+    <tr><td><code>cdcx stream book</code></td><td>Stream order book</td></tr>
+    <tr><td><code>cdcx stream trades</code></td><td>Stream trade executions</td></tr>
+    <tr><td><code>cdcx stream orders</code></td><td>Your order updates (auth)</td></tr>
+    <tr><td><code>cdcx stream positions</code></td><td>Position changes (auth)</td></tr>
+  </table>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">INSTALL &amp; CONFIGURE</div>
+  <h2>One line. Eleven megabytes. Done.</h2>
+  <p class="desc">Single binary, no runtime dependencies. <strong>macOS and Linux</strong>.</p>
+
+  <div class="term term-glow">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> install via curl (recommended)</div>
+    <div class="term-body"><span class="prompt">$</span> <span class="cmd">curl -sSfL https://raw.githubusercontent.com/crypto-com/cdcx-cli/main/install.sh | sh</span>
+
+<span class="a">   &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2557;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2557; &#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2557;&#x2588;&#x2588;&#x2557;  &#x2588;&#x2588;&#x2557;</span>
+<span class="a">  &#x2588;&#x2588;&#x2554;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;&#x2588;&#x2588;&#x2554;&#x2550;&#x2550;&#x2588;&#x2588;&#x2557;&#x2588;&#x2588;&#x2554;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;&#x255A;&#x2588;&#x2588;&#x2557;&#x2588;&#x2588;&#x2554;&#x255D;</span>
+<span class="a">  &#x2588;&#x2588;&#x2551;     &#x2588;&#x2588;&#x2551;  &#x2588;&#x2588;&#x2551;&#x2588;&#x2588;&#x2551;      &#x255A;&#x2588;&#x2588;&#x2588;&#x2554;&#x255D;</span>
+<span class="a">  &#x2588;&#x2588;&#x2551;     &#x2588;&#x2588;&#x2551;  &#x2588;&#x2588;&#x2551;&#x2588;&#x2588;&#x2551;      &#x2588;&#x2588;&#x2554;&#x2588;&#x2588;&#x2557;</span>
+<span class="a">  &#x255A;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2557;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2554;&#x255D;&#x255A;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2557;&#x2588;&#x2588;&#x2554;&#x255D;&#x2588;&#x2588;&#x2557;</span>
+<span class="a">   &#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;&#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;  &#x255A;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x255D;&#x255A;&#x2550;&#x255D; &#x255A;&#x2550;&#x255D;</span>
+
+<span class="g"> &#x2713;</span> Detected platform: darwin-aarch64
+<span class="g"> &#x2713;</span> Checksum verified
+<span class="g"> &#x2713;</span> Installed to /usr/local/bin/cdcx</div>
+  </div>
+
+  <div class="term" style="margin-top:16px">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> install from source</div>
+    <div class="term-body"><span class="m"># Requires Rust toolchain</span>
+<span class="prompt">$</span> <span class="cmd">cargo install --git https://github.com/crypto-com/cdcx-cli.git --bin cdcx</span>
+
+<span class="g"> &#x2713;</span> Compiled + installed to ~/.cargo/bin/cdcx</div>
+  </div>
+
+  <table class="cmd-ref" style="margin-top:24px">
+    <tr><td><code>cdcx setup</code></td><td>Interactive credential setup</td></tr>
+    <tr><td><code>cdcx tui --setup</code></td><td>TUI wizard — theme, watchlist, tick rate</td></tr>
+    <tr><td><code>--profile uat</code></td><td>Switch credential profiles</td></tr>
+    <tr><td><code>--env uat</code></td><td>Target UAT/sandbox</td></tr>
+  </table>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">THEMES</div>
+  <h2>Make it yours.</h2>
+  <p class="desc">6 built-in themes. Or define your own in <strong>~/.config/cdcx/tui.toml</strong> with hex colors.</p>
+  <div class="themes-grid">
+    <div class="theme-card">
+      <div class="preview" style="background:#121212;color:#ddd;"><span style="color:#ffb400;">&#x25B8; BTC_USDT</span>  <span style="color:#0f0;">+2.57%</span>  <span style="color:#64b4ff;">5,371</span>
+  <span style="color:#888;">ETH_USDT</span>  <span style="color:#0f0;">+2.67%</span>  <span style="color:#64b4ff;">109K</span></div>
+      <div class="name">terminal-pro</div>
+    </div>
+    <div class="theme-card">
+      <div class="preview" style="background:#0a0a1e;color:#c8c8dc;"><span style="color:#00d4ff;">&#x25B8; BTC_USDT</span>  <span style="color:#00ff88;">+2.57%</span>  <span style="color:#ffaa00;">5,371</span>
+  <span style="color:#64648c;">ETH_USDT</span>  <span style="color:#00ff88;">+2.67%</span>  <span style="color:#ffaa00;">109K</span></div>
+      <div class="name">cyber-midnight</div>
+    </div>
+    <div class="theme-card">
+      <div class="preview" style="background:#000;color:#fff;"><span style="font-weight:bold;">&#x25B8; BTC_USDT</span>  +2.57%  5,371
+  <span style="color:#666;">ETH_USDT</span>  <span style="color:#666;">+2.67%</span>  109K</div>
+      <div class="name">monochrome</div>
+    </div>
+    <div class="theme-card">
+      <div class="preview" style="background:#0a0014;color:#e6e6ff;"><span style="color:#ff00ff;">&#x25B8; BTC_USDT</span>  <span style="color:#00ff41;">+2.57%</span>  <span style="color:#00c8ff;">5,371</span>
+  <span style="color:#7850a0;">ETH_USDT</span>  <span style="color:#00ff41;">+2.67%</span>  <span style="color:#00c8ff;">109K</span></div>
+      <div class="name">neon</div>
+    </div>
+    <div class="theme-card">
+      <div class="preview" style="background:#190c00;color:#ffdca0;"><span style="color:#f1c40f;">&#x25B8; BTC_USDT</span>  <span style="color:#f1c40f;">+2.57%</span>  <span style="color:#e67e22;">5,371</span>
+  <span style="color:#8c6432;">ETH_USDT</span>  <span style="color:#e74c3c;">-0.81%</span>  <span style="color:#e67e22;">109K</span></div>
+      <div class="name">micky-d</div>
+    </div>
+    <div class="theme-card">
+      <div class="preview" style="background:#000;color:#ffb000;"><span style="color:#ffb000;">&#x25B8; BTC_USDT</span>  <span style="color:#00c800;">+2.57%</span>  <span style="color:#50a0ff;">5,371</span>
+  <span style="color:#808080;">ETH_USDT</span>  <span style="color:#00c800;">+2.67%</span>  <span style="color:#50a0ff;">109K</span></div>
+      <div class="name">amber</div>
+    </div>
+  </div>
+  <div class="screenshot"><img src="img/tui-neon.png" alt="cdcx neon theme" loading="lazy"><div class="screenshot-label">NEON THEME</div></div>
+
+  <div class="term" style="margin-top:24px">
+    <div class="term-header"><span class="term-dot r"></span><span class="term-dot y"></span><span class="term-dot g"></span> tui.toml</div>
+    <div class="term-body"><span class="m">[themes.my-theme]</span>
+<span class="w">bg</span> <span class="m">=</span> <span class="a">"#1a1a2e"</span>
+<span class="w">accent</span> <span class="m">=</span> <span class="a">"#00d4ff"</span>
+<span class="w">positive</span> <span class="m">=</span> <span class="a">"#00ff88"</span>
+<span class="w">negative</span> <span class="m">=</span> <span class="a">"#ff4444"</span></div>
+  </div>
+</div>
+
+<div class="divider"><hr></div>
+<div class="section">
+  <div class="micro">KEYBOARD SHORTCUTS</div>
+  <h2>Everything at your fingertips.</h2>
+  <table class="keys">
+    <tr><td>1-6 / Tab</td><td>Switch tabs</td></tr>
+    <tr><td>Enter</td><td>Instrument detail (book + trades)</td></tr>
+    <tr><td>k</td><td>Candlestick chart</td></tr>
+    <tr><td>m</td><td>Compare charts (up to 4)</td></tr>
+    <tr><td>h</td><td>Toggle heatmap</td></tr>
+    <tr><td>i</td><td>Instrument spotlight</td></tr>
+    <tr><td>\</td><td>Split screen (table + chart)</td></tr>
+    <tr><td>[ / ]</td><td>Cycle chart timeframe</td></tr>
+    <tr><td>s / S</td><td>Sort / reverse sort</td></tr>
+    <tr><td>/</td><td>Search instruments</td></tr>
+    <tr><td>t</td><td>Place order</td></tr>
+    <tr><td>o</td><td>OCO order (stop-loss + take-profit)</td></tr>
+    <tr><td>O</td><td>OTOCO order (entry + SL + TP)</td></tr>
+    <tr><td>c</td><td>Cancel orders</td></tr>
+    <tr><td>p</td><td>Toggle LIVE / PAPER mode</td></tr>
+    <tr><td>!</td><td>Set price alert</td></tr>
+    <tr><td>y</td><td>Copy to clipboard (CSV)</td></tr>
+    <tr><td>?</td><td>Help overlay</td></tr>
+    <tr><td>q</td><td>Quit</td></tr>
+  </table>
+</div>
+
+<div class="divider"><hr></div>
+<footer>
+  <div class="tagline">Built with Rust. ~11MB. Zero dependencies. 86 REST endpoints. 86 MCP tools.</div>
+  <p style="margin-bottom:16px">
+    <code style="color:var(--amber);background:rgba(255,180,0,0.08);padding:4px 12px;">curl -sSfL https://raw.githubusercontent.com/crypto-com/cdcx-cli/main/install.sh | sh</code>
+  </p>
+  <p>
+    <a href="https://github.com/crypto-com/cdcx-cli">GitHub</a> &#xB7;
+    Schema-driven &#xB7; OpenAPI-powered &#xB7; Paper Trading &#xB7; MCP Server
+  </p>
+  <p style="margin-top:16px;color:#333;">Crafted by Crypto.com Exchange</p>
+</footer>
+
+<script>
+document.getElementById('copy-btn').addEventListener('click', function() {
+  var cmd = document.getElementById('install-cmd').textContent;
+  navigator.clipboard.writeText(cmd).then(function() {
+    document.getElementById('copy-btn').style.display = 'none';
+    document.getElementById('copied-msg').style.display = 'inline';
+    setTimeout(function() {
+      document.getElementById('copy-btn').style.display = '';
+      document.getElementById('copied-msg').style.display = 'none';
+    }, 2000);
+  });
+});
+
+// Hero animation
+var heroOutput = document.getElementById('hero-output');
+var heroCursor = document.getElementById('hero-cursor');
+var skipped = false;
+
+var logo = [
+  '   \u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557  \u2588\u2588\u2557',
+  '  \u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u255A\u2588\u2588\u2557\u2588\u2588\u2554\u255D',
+  '  \u2588\u2588\u2551     \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551      \u255A\u2588\u2588\u2588\u2554\u255D ',
+  '  \u2588\u2588\u2551     \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551      \u2588\u2588\u2554\u2588\u2588\u2557 ',
+  '  \u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2554\u255D\u2588\u2588\u2557',
+  '   \u255A\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u255D  \u255A\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u255D \u255A\u2550\u255D'
+];
+
+var subtitle = 'Crypto.com Exchange Terminal';
+var command = 'cdcx tui';
+
+var outputRows = [
+  {t: '| BTC +2.5% \u25B2 | ETH +2.6% \u25B2 | SOL +3.3% \u25B2 | CRO -0.8% \u25BC |', c: 'm'},
+];
+
+var tuiLines = [
+  {t: '', c: ''},
+  {t: '1:Market \u2502 2:Portfolio \u2502 3:Orders \u2502 4:History \u2502 5:Watchlist \u2502 6:Positions', c: 'a'},
+  {t: 'Market: [Spot] Perpetual Futures  Sort: [Vol\u2193]  1-145/745', c: 'm'},
+  {t: '', c: ''},
+  {t: ' #  Instrument     Spark       Price        24h       Volume', c: 'm'},
+  {t: '\u25B81  BTC_USDT      \u2840\u2844\u2846\u2847\u28C7\u2847\u2846\u2844\u2846\u2847  70,581.00  +2.57%   372.5B', c: 'g'},
+  {t: ' 2  ETH_USDT      \u2840\u2844\u2846\u2847\u2846\u2844\u2846\u2847\u2844\u2846   2,137.85  +2.67%   234.6M', c: 'g'},
+  {t: ' 3  SOL_USDT      \u2840\u2840\u2844\u2846\u2847\u28C7\u2847\u28C7\u2847\u28C7      90.43  +3.38%    23.3M', c: 'g'},
+  {t: ' 4  XRP_USDT      \u2847\u2846\u2844\u2840\u2840\u2844\u2840\u2840\u2840\u2840       0.52  -1.20%    18.7M', c: 'r'},
+  {t: ' 5  DOGE_USDT     \u2844\u2846\u2847\u2846\u2847\u28C7\u2847\u2846\u2847\u28C7       0.11  +0.89%    12.1M', c: 'g'},
+  {t: '', c: ''},
+  {t: 'h:heatmap k:chart m:compare t:trade o:OCO p:paper ?:help', c: 'm'},
+  {t: 'PROD  \u25A0 LIVE  $52,481.30 (+481.30)  Theme: terminal-pro  q:quit  ?:help', c: 'm'},
+];
+
+function showFinal() {
+  skipped = true;
+  while (heroOutput.firstChild) heroOutput.removeChild(heroOutput.firstChild);
+
+  var logoDiv = document.createElement('div');
+  logoDiv.style.cssText = 'color:var(--amber);text-shadow:0 0 10px rgba(255,180,0,0.3)';
+  logo.forEach(function(l) {
+    var d = document.createElement('div');
+    d.textContent = l;
+    logoDiv.appendChild(d);
+  });
+  heroOutput.appendChild(logoDiv);
+
+  var sub = document.createElement('div');
+  sub.style.cssText = 'color:var(--muted);font-size:11px;letter-spacing:2px;margin-top:4px';
+  sub.textContent = subtitle;
+  heroOutput.appendChild(sub);
+
+  var cmdDiv = document.createElement('div');
+  cmdDiv.style.marginTop = '16px';
+  var p = document.createElement('span');
+  p.className = 'prompt';
+  p.textContent = '$ ';
+  cmdDiv.appendChild(p);
+  var c = document.createElement('span');
+  c.className = 'cmd';
+  c.textContent = command;
+  cmdDiv.appendChild(c);
+  heroOutput.appendChild(cmdDiv);
+
+  heroOutput.appendChild(document.createElement('br'));
+  outputRows.forEach(function(row) {
+    var d = document.createElement('div');
+    d.className = row.c;
+    d.textContent = row.t;
+    heroOutput.appendChild(d);
+  });
+
+  tuiLines.forEach(function(row) {
+    var d = document.createElement('div');
+    d.className = row.c;
+    d.textContent = row.t;
+    heroOutput.appendChild(d);
+  });
+}
+
+function sleep(ms) {
+  return new Promise(function(r) { setTimeout(r, ms); });
+}
+
+async function runHero() {
+  await sleep(1500);
+  if (skipped) return;
+
+  heroCursor.remove();
+  var logoDiv = document.createElement('div');
+  logoDiv.style.cssText = 'color:var(--amber);text-shadow:0 0 10px rgba(255,180,0,0.3)';
+  heroOutput.appendChild(logoDiv);
+  heroOutput.appendChild(heroCursor);
+
+  for (var li = 0; li < logo.length; li++) {
+    if (skipped) return showFinal();
+    var lineDiv = document.createElement('div');
+    logoDiv.appendChild(lineDiv);
+    var chars = logo[li];
+    for (var ci = 0; ci < chars.length; ci++) {
+      if (skipped) return showFinal();
+      lineDiv.textContent += chars[ci];
+      if (ci % 3 === 0) await sleep(8);
+    }
+  }
+
+  await sleep(500);
+  if (skipped) return showFinal();
+
+  var sub = document.createElement('div');
+  sub.style.cssText = 'color:var(--muted);font-size:11px;letter-spacing:2px;margin-top:4px;opacity:0;transition:opacity 0.5s';
+  sub.textContent = subtitle;
+  heroOutput.insertBefore(sub, heroCursor);
+  await sleep(50);
+  sub.style.opacity = '1';
+  await sleep(800);
+  if (skipped) return showFinal();
+
+  var cmdDiv = document.createElement('div');
+  cmdDiv.style.marginTop = '16px';
+  heroOutput.insertBefore(cmdDiv, heroCursor);
+  var pr = document.createElement('span');
+  pr.className = 'prompt';
+  pr.textContent = '$ ';
+  cmdDiv.appendChild(pr);
+  var cmdSpan = document.createElement('span');
+  cmdSpan.className = 'cmd';
+  cmdDiv.appendChild(cmdSpan);
+  for (var i = 0; i < command.length; i++) {
+    if (skipped) return showFinal();
+    cmdSpan.textContent += command[i];
+    await sleep(40);
+  }
+  await sleep(300);
+  if (skipped) return showFinal();
+
+  heroOutput.insertBefore(document.createElement('br'), heroCursor);
+  for (var ri = 0; ri < outputRows.length; ri++) {
+    if (skipped) return showFinal();
+    var row = document.createElement('div');
+    row.className = outputRows[ri].c;
+    row.textContent = outputRows[ri].t;
+    row.style.cssText = 'opacity:0;transition:opacity 0.3s';
+    heroOutput.insertBefore(row, heroCursor);
+    await sleep(50);
+    row.style.opacity = '1';
+    await sleep(200);
+  }
+
+  await sleep(600);
+  if (skipped) return showFinal();
+
+  for (var ti = 0; ti < tuiLines.length; ti++) {
+    if (skipped) return showFinal();
+    var trow = document.createElement('div');
+    trow.className = tuiLines[ti].c;
+    trow.textContent = tuiLines[ti].t;
+    trow.style.cssText = 'opacity:0;transition:opacity 0.2s';
+    heroOutput.insertBefore(trow, heroCursor);
+    await sleep(30);
+    trow.style.opacity = '1';
+    await sleep(80);
+  }
+
+  heroCursor.remove();
+}
+
+function skipAnimation() {
+  if (!skipped) showFinal();
+}
+window.addEventListener('scroll', skipAnimation, { once: true });
+document.addEventListener('click', function(e) {
+  if (e.target.tagName === 'BUTTON') return;
+  skipAnimation();
+}, { once: true });
+
+runHero();
+</script>
+</body>
+</html>

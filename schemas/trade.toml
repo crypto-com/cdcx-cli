@@ -1,0 +1,33 @@
+[group]
+name = "trade"
+
+[[endpoints]]
+method = "private/amend-order"
+command = "amend"
+
+[[endpoints]]
+method = "private/create-order"
+command = "order"
+
+[[endpoints.params]]
+name = "side"
+position = 0
+
+[[endpoints.params]]
+name = "instrument_name"
+position = 1
+
+[[endpoints.params]]
+name = "quantity"
+position = 2
+
+[[endpoints.params]]
+name = "type"
+default = "MARKET"
+
+[[endpoints]]
+method = "private/get-order-detail"
+
+[[endpoints.params]]
+name = "order_id"
+position = 0

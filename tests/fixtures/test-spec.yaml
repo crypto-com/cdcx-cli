@@ -1,0 +1,367 @@
+openapi: 3.0.3
+info:
+  title: Test Crypto.com Exchange API
+  version: 1.0.0
+paths:
+  /public/get-tickers:
+    get:
+      tags:
+        - Reference and Market Data
+      summary: public/get-tickers
+      description: Get tickers for all or a specific instrument.
+      parameters:
+        - name: instrument_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Instrument name (e.g. BTC_USDT)
+      responses:
+        '200':
+          description: Success
+  /public/get-book:
+    get:
+      tags:
+        - Reference and Market Data
+      summary: public/get-book
+      description: Get order book for an instrument.
+      parameters:
+        - name: instrument_name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Instrument name
+        - name: depth
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Order book depth
+      responses:
+        '200':
+          description: Success
+  /public/get-instruments:
+    get:
+      tags:
+        - Reference and Market Data
+      summary: public/get-instruments
+      description: Get all instruments.
+      responses:
+        '200':
+          description: Success
+  /public/get-candlestick:
+    get:
+      tags:
+        - Reference and Market Data
+      summary: public/get-candlestick
+      description: Get candlestick data.
+      parameters:
+        - name: instrument_name
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: timeframe
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+  /public/get-trades:
+    get:
+      tags:
+        - Reference and Market Data
+      summary: public/get-trades
+      description: Get recent trades.
+      parameters:
+        - name: instrument_name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Success
+  /private/create-order:
+    post:
+      tags:
+        - Trading
+      summary: private/create-order
+      description: Create a new order.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - instrument_name
+                    - side
+                    - type
+                    - quantity
+                    - price
+                  properties:
+                    instrument_name:
+                      type: string
+                      description: Instrument name
+                    side:
+                      type: string
+                      description: Order side
+                      enum:
+                        - BUY
+                        - SELL
+                    type:
+                      type: string
+                      description: Order type
+                      enum:
+                        - LIMIT
+                        - MARKET
+                    quantity:
+                      type: number
+                      description: Order quantity
+                    price:
+                      type: number
+                      description: Order price
+      responses:
+        '200':
+          description: Success
+  /private/cancel-order:
+    post:
+      tags:
+        - Trading
+      summary: private/cancel-order
+      description: Cancel an existing order.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - instrument_name
+                    - order_id
+                  properties:
+                    instrument_name:
+                      type: string
+                    order_id:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/get-open-orders:
+    post:
+      tags:
+        - Trading
+      summary: private/get-open-orders
+      description: Get open orders.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  properties:
+                    instrument_name:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/get-account-summary:
+    post:
+      tags:
+        - Account Balance and Positions
+      summary: private/get-account-summary
+      description: Get account summary.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  properties:
+                    currency:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/get-positions:
+    post:
+      tags:
+        - Account Balance and Positions
+      summary: private/get-positions
+      description: Get positions.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  properties:
+                    instrument_name:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/create-order-oto:
+    post:
+      tags:
+        - Advanced Order Management
+      summary: private/create-order-oto
+      description: Create OTO order.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - instrument_name
+                  properties:
+                    instrument_name:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/cancel-order-oto:
+    post:
+      tags:
+        - Advanced Order Management
+      summary: private/cancel-order-oto
+      description: Cancel OTO order.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - contingency_id
+                  properties:
+                    contingency_id:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/get-withdrawal-history:
+    post:
+      tags:
+        - Crypto Wallet
+      summary: private/get-withdrawal-history
+      description: Get withdrawal history.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  properties:
+                    currency:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/create-withdrawal:
+    post:
+      tags:
+        - Crypto Wallet
+      summary: private/create-withdrawal
+      description: Create a withdrawal.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - currency
+                    - amount
+                    - address
+                  properties:
+                    currency:
+                      type: string
+                    amount:
+                      type: number
+                    address:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/get-order-history:
+    post:
+      tags:
+        - Transaction History
+      summary: private/get-order-history
+      description: Get order history.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  properties:
+                    instrument_name:
+                      type: string
+      responses:
+        '200':
+          description: Success
+  /private/get-fiat-currencies:
+    post:
+      tags:
+        - Fiat Wallet
+      summary: private/get-fiat-currencies
+      description: Get fiat currencies.
+      responses:
+        '200':
+          description: Success
+  /private/get-staking-instruments:
+    post:
+      tags:
+        - Staking
+      summary: private/get-staking-instruments
+      description: Get staking instruments.
+      responses:
+        '200':
+          description: Success
+  /private/get-margin-trading-summary:
+    post:
+      tags:
+        - Margin Trading
+      summary: private/get-margin-trading-summary
+      description: Get margin trading summary.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  properties:
+                    instrument_name:
+                      type: string
+      responses:
+        '200':
+          description: Success

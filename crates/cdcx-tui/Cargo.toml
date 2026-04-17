@@ -1,0 +1,19 @@
+[package]
+name = "cdcx-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal UI dashboard for cdcx — real-time market data, portfolio, and order management"
+repository.workspace = true
+
+[dependencies]
+cdcx-core = { path = "../cdcx-core" }
+ratatui = { version = "0.30", features = ["crossterm"] }
+crossterm = "0.28"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = "0.8"
+dirs = "6"
+chrono = "0.4"

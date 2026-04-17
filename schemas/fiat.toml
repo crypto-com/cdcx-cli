@@ -1,0 +1,18 @@
+[group]
+name = "fiat"
+
+[[endpoints]]
+method = "private/fiat/fiat-transaction-quota"
+command = "quota"
+
+[[endpoints]]
+method = "private/fiat/fiat-withdraw-history"
+command = "withdrawal-history"
+
+[[endpoints]]
+method = "private/fiat/fiat-get-bank-accounts"
+command = "accounts"
+
+[[endpoints]]
+method = "private/fiat/fiat-transaction-limit"
+command = "limit"

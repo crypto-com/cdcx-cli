@@ -1,0 +1,72 @@
+[
+  {
+    "category": "auth",
+    "description": "Authentication or authorization failure",
+    "cdc_codes": [10002, 10003, 10006, 10007, 40101, 40102],
+    "retryable": false,
+    "guidance": "Check API key and secret. Verify they are valid and have the required permissions. Ensure the API key has not expired and is enabled in the exchange dashboard."
+  },
+  {
+    "category": "validation",
+    "description": "Invalid parameters or request format",
+    "cdc_codes": [10001, 10004, 10005, 10008, 10009],
+    "retryable": false,
+    "guidance": "Check parameter types, names, and values. Use 'cdcx schema show <method>' to verify endpoint requirements. Ensure numeric values in JSON payloads are strings as per API spec."
+  },
+  {
+    "category": "safety",
+    "description": "Operation blocked by safety rails",
+    "cdc_codes": [],
+    "retryable": false,
+    "guidance": "Set 'acknowledged=true' in parameters for mutate-tier commands. For dangerous operations, ensure '--allow-dangerous' flag is set on MCP server and 'acknowledged=true' is provided."
+  },
+  {
+    "category": "rate_limit",
+    "description": "Too many requests (HTTP 429)",
+    "cdc_codes": [42901],
+    "retryable": true,
+    "guidance": "Implement exponential backoff with jitter (start with 1s, max 32s). Respect rate limits: 100 req/s for public endpoints, 10 req/s for private endpoints. Consider batching operations or using WebSocket streams for real-time data."
+  },
+  {
+    "category": "insufficient_funds",
+    "description": "Account balance too low to complete operation",
+    "cdc_codes": [20001, 306],
+    "retryable": false,
+    "guidance": "Check account balance with 'cdcx account summary --currency <CURRENCY>'. Ensure sufficient funds are available for the operation including fees. Transfer funds if needed."
+  },
+  {
+    "category": "order_error",
+    "description": "Order rejection or processing failure",
+    "cdc_codes": [20002, 20005, 20006, 20007, 318],
+    "retryable": false,
+    "guidance": "Verify order parameters (side, instrument, quantity, price). Check if the order was partially filled. Use 'cdcx trade order-detail' to check order status. Retry with adjusted parameters if appropriate."
+  },
+  {
+    "category": "network",
+    "description": "Connection, timeout, or I/O error",
+    "cdc_codes": [],
+    "retryable": true,
+    "guidance": "Implement exponential backoff for retries. Check network connectivity. Verify API endpoint is accessible. Consider using WebSocket for persistent connections instead of polling."
+  },
+  {
+    "category": "api",
+    "description": "API returned non-zero code (unmapped error)",
+    "cdc_codes": [],
+    "retryable": false,
+    "guidance": "Check the error code and message for guidance. Consult CDC API documentation. If code is recognized in other categories, file a bug report with the cdcx maintainers."
+  },
+  {
+    "category": "config",
+    "description": "Configuration or setup error",
+    "cdc_codes": [],
+    "retryable": false,
+    "guidance": "Fix configuration file syntax. Ensure ~/.config/cdcx/config.toml is valid TOML. Check environment variables are set correctly. Verify profile names match configuration."
+  },
+  {
+    "category": "io",
+    "description": "File or stream I/O error",
+    "cdc_codes": [],
+    "retryable": true,
+    "guidance": "Check file permissions. Verify disk space is available. Ensure paths are valid. For WebSocket stream errors, check network stability and restart the stream."
+  }
+]

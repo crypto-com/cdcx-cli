@@ -1,0 +1,18 @@
+[group]
+name = "account"
+
+[[endpoints]]
+method = "private/change-account-leverage"
+command = "leverage"
+
+[[endpoints]]
+method = "private/change-account-settings"
+command = "settings"
+
+[[endpoints]]
+method = "private/get-accounts"
+command = "info"
+
+[[endpoints]]
+method = "private/user-balance"
+command = "summary"

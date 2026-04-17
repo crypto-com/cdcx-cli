@@ -1,0 +1,1260 @@
+{
+  "data": [
+    {
+      "auth_required": true,
+      "command": "convert",
+      "description": "Convert tokens to staking tokens",
+      "http_method": "POST",
+      "method": "private/staking/convert",
+      "params": [
+        {
+          "description": "Instrument name (required)",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Quantity to convert (required)",
+          "name": "quantity",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "withdrawal-history",
+      "description": "Get withdrawal history",
+      "http_method": "POST",
+      "method": "private/get-withdrawal-history",
+      "params": [
+        {
+          "description": "Filter by currency (optional)",
+          "name": "currency",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Filter by status (optional)",
+          "name": "status",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel",
+      "description": "Cancel an order",
+      "http_method": "POST",
+      "method": "private/cancel-order",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Order ID",
+          "name": "order_id",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "create-oco",
+      "description": "Create an OCO (One-Cancels-Other) order",
+      "http_method": "POST",
+      "method": "private/create-oco-order",
+      "params": [],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "settings",
+      "description": "Change account settings",
+      "http_method": "POST",
+      "method": "private/change-account-settings",
+      "params": [],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel-oco",
+      "description": "Cancel an OCO order",
+      "http_method": "POST",
+      "method": "private/cancel-oco-order",
+      "params": [],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "leverage",
+      "description": "Set margin leverage",
+      "http_method": "POST",
+      "method": "private/margin/set-leverage",
+      "params": [
+        {
+          "description": "Instrument name (required)",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Leverage value (required)",
+          "name": "leverage",
+          "required": true,
+          "type": "number",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "positions",
+      "description": "Get account positions",
+      "http_method": "POST",
+      "method": "private/get-positions",
+      "params": [
+        {
+          "description": "Filter by instrument name (optional)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "unstake",
+      "description": "Unstake tokens",
+      "http_method": "POST",
+      "method": "private/staking/unstake",
+      "params": [
+        {
+          "description": "Instrument name (required)",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Quantity to unstake (required)",
+          "name": "quantity",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": false,
+      "command": "ticker",
+      "description": "Get ticker for an instrument or all instruments",
+      "http_method": "GET",
+      "method": "public/get-tickers",
+      "params": [
+        {
+          "description": "Instrument name (e.g., BTC_USDT). Omit for all.",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "withdrawal-history",
+      "description": "Get fiat withdrawal history",
+      "http_method": "POST",
+      "method": "private/get-fiat-withdrawal-history",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "open-orders",
+      "description": "Get open orders",
+      "http_method": "POST",
+      "method": "private/get-open-orders",
+      "params": [
+        {
+          "description": "Filter by instrument name (optional)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Page size",
+          "name": "page_size",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "Page number",
+          "name": "page",
+          "required": false,
+          "type": "number",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "info",
+      "description": "Get account information",
+      "http_method": "POST",
+      "method": "private/get-account-info",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel-oto",
+      "description": "Cancel an OTO order",
+      "http_method": "POST",
+      "method": "private/cancel-oto-order",
+      "params": [],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "close-position",
+      "description": "Close a position",
+      "http_method": "POST",
+      "method": "private/close-position",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Close type",
+          "name": "type",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "LIMIT",
+            "MARKET"
+          ]
+        },
+        {
+          "description": "Price (required for LIMIT)",
+          "name": "price",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "channel",
+      "description": "Get fiat channel information",
+      "http_method": "POST",
+      "method": "private/get-fiat-channel",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "transactions",
+      "description": "Get transaction history",
+      "http_method": "POST",
+      "method": "private/get-transactions",
+      "params": [
+        {
+          "description": "Filter by instrument name (optional)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Filter by journal type (optional)",
+          "name": "journal_type",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Start timestamp (optional)",
+          "name": "start_time",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "End timestamp (optional)",
+          "name": "end_time",
+          "required": false,
+          "type": "number",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": false,
+      "command": "insurance",
+      "description": "Get insurance fund data",
+      "http_method": "GET",
+      "method": "public/get-insurance",
+      "params": [],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel-all",
+      "description": "Cancel all orders",
+      "http_method": "POST",
+      "method": "private/cancel-all-orders",
+      "params": [
+        {
+          "description": "Instrument name (optional, cancel all if omitted)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "dangerous"
+    },
+    {
+      "auth_required": true,
+      "command": "summary",
+      "description": "Get account summary (balances, etc.)",
+      "http_method": "POST",
+      "method": "private/get-account-summary",
+      "params": [
+        {
+          "description": "Filter by currency (optional)",
+          "name": "currency",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "stake",
+      "description": "Stake tokens",
+      "http_method": "POST",
+      "method": "private/staking/stake",
+      "params": [
+        {
+          "description": "Instrument name (required)",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Quantity to stake (required)",
+          "name": "quantity",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "open-unstakes",
+      "description": "Get open unstakes",
+      "http_method": "POST",
+      "method": "private/staking/get-open-unstake",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "order",
+      "description": "Create an order",
+      "http_method": "POST",
+      "method": "private/create-order",
+      "params": [
+        {
+          "description": "Instrument name (e.g., BTC_USDT)",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Order side",
+          "name": "side",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "BUY",
+            "SELL"
+          ]
+        },
+        {
+          "description": "Order type",
+          "name": "type",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "LIMIT",
+            "MARKET",
+            "STOP_LOSS",
+            "STOP_LIMIT",
+            "TAKE_PROFIT",
+            "TAKE_PROFIT_LIMIT"
+          ]
+        },
+        {
+          "description": "Order quantity",
+          "name": "quantity",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Order price (required for LIMIT orders)",
+          "name": "price",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Time in force",
+          "name": "time_in_force",
+          "required": false,
+          "type": "enum",
+          "values": [
+            "GTC",
+            "IOC",
+            "FOK"
+          ]
+        },
+        {
+          "description": "Execution instruction",
+          "name": "exec_inst",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Client order ID",
+          "name": "client_oid",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": false,
+      "command": "instruments",
+      "description": "Get all available instruments",
+      "http_method": "GET",
+      "method": "public/get-instruments",
+      "params": [],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "networks",
+      "description": "Get currency networks",
+      "http_method": "POST",
+      "method": "private/get-currency-networks",
+      "params": [
+        {
+          "description": "Currency code (optional)",
+          "name": "currency",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "orders",
+      "description": "Get order history",
+      "http_method": "POST",
+      "method": "private/get-order-history",
+      "params": [
+        {
+          "description": "Filter by instrument name (optional)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Start timestamp (optional)",
+          "name": "start_time",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "End timestamp (optional)",
+          "name": "end_time",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "Page size (optional)",
+          "name": "page_size",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "Page number (optional)",
+          "name": "page",
+          "required": false,
+          "type": "number",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "withdraw",
+      "description": "Create a withdrawal",
+      "http_method": "POST",
+      "method": "private/create-withdrawal",
+      "params": [
+        {
+          "description": "Currency code (required)",
+          "name": "currency",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Amount to withdraw (required)",
+          "name": "amount",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Withdrawal address (required)",
+          "name": "address",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Network ID (optional)",
+          "name": "network_id",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "dangerous"
+    },
+    {
+      "auth_required": true,
+      "command": "oto-open-orders",
+      "description": "Get open OTO orders",
+      "http_method": "POST",
+      "method": "private/get-oto-open-orders",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "withdraw",
+      "description": "Create a fiat withdrawal",
+      "http_method": "POST",
+      "method": "private/create-fiat-withdrawal",
+      "params": [
+        {
+          "description": "Fiat currency code (required)",
+          "name": "currency",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Withdrawal amount (required)",
+          "name": "amount",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "dangerous"
+    },
+    {
+      "auth_required": true,
+      "command": "open-stakes",
+      "description": "Get open stakes",
+      "http_method": "POST",
+      "method": "private/staking/get-open-stake",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "oco-open-orders",
+      "description": "Get open OCO orders",
+      "http_method": "POST",
+      "method": "private/get-oco-open-orders",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": false,
+      "command": "settlement-prices",
+      "description": "Get settlement prices",
+      "http_method": "GET",
+      "method": "public/get-settlement-price",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel-all-oto",
+      "description": "Cancel all OTO orders",
+      "http_method": "POST",
+      "method": "private/cancel-all-oto-orders",
+      "params": [],
+      "safety_tier": "dangerous"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel-all-oco",
+      "description": "Cancel all OCO orders",
+      "http_method": "POST",
+      "method": "private/cancel-all-oco-orders",
+      "params": [],
+      "safety_tier": "dangerous"
+    },
+    {
+      "auth_required": true,
+      "command": "create-oto",
+      "description": "Create an OTO (One-Triggers-Other) order",
+      "http_method": "POST",
+      "method": "private/create-oto-order",
+      "params": [],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": false,
+      "command": "risk-params",
+      "description": "Get risk parameters",
+      "http_method": "GET",
+      "method": "public/get-risk-parameters",
+      "params": [],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "stake-history",
+      "description": "Get stake history",
+      "http_method": "POST",
+      "method": "private/staking/get-stake-history",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": false,
+      "command": "valuations",
+      "description": "Get instrument valuations",
+      "http_method": "GET",
+      "method": "public/get-valuations",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Valuation type",
+          "name": "valuation_type",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "positions",
+      "description": "Get staking positions",
+      "http_method": "POST",
+      "method": "private/staking/get-staking-position",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "subaccount-balances",
+      "description": "Get subaccount balances",
+      "http_method": "POST",
+      "method": "private/get-subaccount-balances",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel-otoco",
+      "description": "Cancel an OTOCO order",
+      "http_method": "POST",
+      "method": "private/cancel-otoco-order",
+      "params": [],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "fee-rate",
+      "description": "Get fee rate",
+      "http_method": "POST",
+      "method": "private/get-fee-rate",
+      "params": [
+        {
+          "description": "Instrument name (optional)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "order-list",
+      "description": "Create an order list (contingency orders)",
+      "http_method": "POST",
+      "method": "private/create-order-list",
+      "params": [
+        {
+          "description": "Contingency type",
+          "name": "contingency_type",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Order list (JSON string)",
+          "name": "order_list",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "currencies",
+      "description": "Get supported fiat currencies",
+      "http_method": "POST",
+      "method": "private/get-fiat-currencies",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "leverage",
+      "description": "Change account leverage",
+      "http_method": "POST",
+      "method": "private/change-account-leverage",
+      "params": [
+        {
+          "description": "Leverage value (required)",
+          "name": "leverage",
+          "required": true,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "Instrument name (optional)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "instruments",
+      "description": "Get stakeable instruments",
+      "http_method": "POST",
+      "method": "private/staking/get-staking-instruments",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "amend",
+      "description": "Amend an existing order",
+      "http_method": "POST",
+      "method": "private/amend-order",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Order ID",
+          "name": "order_id",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "New price",
+          "name": "price",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "New quantity",
+          "name": "quantity",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": false,
+      "command": "trades",
+      "description": "Get recent trades",
+      "http_method": "GET",
+      "method": "public/get-trades",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Number of trades (default 50, max 150)",
+          "name": "count",
+          "required": false,
+          "type": "number",
+          "values": []
+        }
+      ],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "trades",
+      "description": "Get trade history",
+      "http_method": "POST",
+      "method": "private/get-trades",
+      "params": [
+        {
+          "description": "Filter by instrument name (optional)",
+          "name": "instrument_name",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Start timestamp (optional)",
+          "name": "start_time",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "End timestamp (optional)",
+          "name": "end_time",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "Page size (optional)",
+          "name": "page_size",
+          "required": false,
+          "type": "number",
+          "values": []
+        },
+        {
+          "description": "Page number (optional)",
+          "name": "page",
+          "required": false,
+          "type": "number",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "cancel-list",
+      "description": "Cancel a list of orders",
+      "http_method": "POST",
+      "method": "private/cancel-order-list",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Order list (JSON string)",
+          "name": "order_list",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "deposit-history",
+      "description": "Get fiat deposit history",
+      "http_method": "POST",
+      "method": "private/get-fiat-deposit-history",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "accounts",
+      "description": "Get fiat accounts",
+      "http_method": "POST",
+      "method": "private/get-fiat-accounts",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": false,
+      "command": "candlestick",
+      "description": "Get candlestick data",
+      "http_method": "GET",
+      "method": "public/get-candlestick",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Candlestick interval",
+          "name": "timeframe",
+          "required": false,
+          "type": "enum",
+          "values": [
+            "1m",
+            "5m",
+            "15m",
+            "30m",
+            "1h",
+            "4h",
+            "6h",
+            "12h",
+            "1D",
+            "7D",
+            "14D",
+            "1M"
+          ]
+        }
+      ],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "unstake-history",
+      "description": "Get unstake history",
+      "http_method": "POST",
+      "method": "private/staking/get-unstake-history",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "reward-history",
+      "description": "Get staking reward history",
+      "http_method": "POST",
+      "method": "private/staking/get-staking-reward-history",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": false,
+      "command": "book",
+      "description": "Get order book",
+      "http_method": "GET",
+      "method": "public/get-book",
+      "params": [
+        {
+          "description": "Instrument name",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Book depth (10, 20, 50, default 50)",
+          "name": "depth",
+          "required": false,
+          "type": "number",
+          "values": []
+        }
+      ],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "deposit-address",
+      "description": "Get deposit address",
+      "http_method": "POST",
+      "method": "private/get-deposit-address",
+      "params": [
+        {
+          "description": "Currency code (required)",
+          "name": "currency",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Network ID (optional)",
+          "name": "network_id",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": false,
+      "command": "conversion-rate",
+      "description": "Get staking conversion rate",
+      "http_method": "GET",
+      "method": "public/staking/get-conversion-rate",
+      "params": [],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "transfer",
+      "description": "Transfer between SPOT and MARGIN accounts",
+      "http_method": "POST",
+      "method": "private/margin/transfer",
+      "params": [
+        {
+          "description": "Currency code (required)",
+          "name": "currency",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Source account type",
+          "name": "from",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "SPOT",
+            "MARGIN"
+          ]
+        },
+        {
+          "description": "Destination account type",
+          "name": "to",
+          "required": true,
+          "type": "enum",
+          "values": [
+            "SPOT",
+            "MARGIN"
+          ]
+        },
+        {
+          "description": "Transfer amount (required)",
+          "name": "amount",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "oco-detail",
+      "description": "Get OCO order detail",
+      "http_method": "POST",
+      "method": "private/get-oco-order-detail",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "instrument-fee-rate",
+      "description": "Get instrument-specific fee rate",
+      "http_method": "POST",
+      "method": "private/get-instrument-fee-rate",
+      "params": [
+        {
+          "description": "Instrument name (required)",
+          "name": "instrument_name",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "deposit-history",
+      "description": "Get deposit history",
+      "http_method": "POST",
+      "method": "private/get-deposit-history",
+      "params": [
+        {
+          "description": "Filter by currency (optional)",
+          "name": "currency",
+          "required": false,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Filter by status (optional)",
+          "name": "status",
+          "required": false,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": false,
+      "command": "announcements",
+      "description": "Get exchange announcements",
+      "http_method": "GET",
+      "method": "public/get-announcements",
+      "params": [],
+      "safety_tier": "read"
+    },
+    {
+      "auth_required": true,
+      "command": "create-otoco",
+      "description": "Create an OTOCO (One-Triggers-OCO) order",
+      "http_method": "POST",
+      "method": "private/create-otoco-order",
+      "params": [],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "deposit",
+      "description": "Create a fiat deposit",
+      "http_method": "POST",
+      "method": "private/create-fiat-deposit",
+      "params": [
+        {
+          "description": "Fiat currency code (required)",
+          "name": "currency",
+          "required": true,
+          "type": "string",
+          "values": []
+        },
+        {
+          "description": "Deposit amount (required)",
+          "name": "amount",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "mutate"
+    },
+    {
+      "auth_required": true,
+      "command": "oto-detail",
+      "description": "Get OTO order detail",
+      "http_method": "POST",
+      "method": "private/get-oto-order-detail",
+      "params": [],
+      "safety_tier": "sensitive_read"
+    },
+    {
+      "auth_required": true,
+      "command": "order-detail",
+      "description": "Get order detail",
+      "http_method": "POST",
+      "method": "private/get-order-detail",
+      "params": [
+        {
+          "description": "Order ID",
+          "name": "order_id",
+          "required": true,
+          "type": "string",
+          "values": []
+        }
+      ],
+      "safety_tier": "sensitive_read"
+    }
+  ],
+  "status": "ok"
+}

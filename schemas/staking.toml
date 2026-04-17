@@ -1,0 +1,28 @@
+[group]
+name = "staking"
+
+[[endpoints]]
+method = "private/staking/get-open-stake"
+command = "open-stakes"
+
+[[endpoints]]
+method = "private/staking/get-staking-instruments"
+command = "instruments"
+
+[[endpoints]]
+method = "private/staking/get-staking-position"
+command = "positions"
+
+[[endpoints]]
+method = "private/staking/stake"
+
+[[endpoints.params]]
+name = "quantity"
+position = 1
+
+[[endpoints]]
+method = "private/staking/unstake"
+
+[[endpoints.params]]
+name = "quantity"
+position = 1
