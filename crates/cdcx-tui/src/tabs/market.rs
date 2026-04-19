@@ -360,7 +360,10 @@ impl MarketTab {
 
 impl Tab for MarketTab {
     fn is_editing(&self) -> bool {
-        self.searching
+        // Suppress global hotkeys whenever a text-input overlay is open —
+        // otherwise a character like 'p' would toggle paper mode instead of
+        // filtering the picker/search query.
+        self.searching || self.picker.is_some()
     }
 
     fn on_key(&mut self, key: KeyEvent, state: &mut AppState) -> bool {
@@ -1328,6 +1331,22 @@ mod tests {
         assert_eq!(category_label("PERPETUAL_SWAP"), "Perpetual");
         assert_eq!(category_label("FUTURE"), "Futures");
         assert_eq!(category_label("RWA"), "RWA"); // unknown types pass through
+    }
+
+    #[test]
+    fn is_editing_tracks_search_and_picker() {
+        let mut tab = MarketTab::new();
+        assert!(!tab.is_editing(), "fresh tab must not be editing");
+
+        tab.searching = true;
+        assert!(tab.is_editing(), "search bar open must be editing");
+        tab.searching = false;
+
+        // Picker open (compare view) must also suppress global hotkeys —
+        // otherwise characters like 'p' toggle paper mode instead of
+        // filtering the picker query.
+        tab.picker = Some(InstrumentPicker::new(&["BTC_USDT".into()]));
+        assert!(tab.is_editing(), "picker open must be editing");
     }
 
     #[test]

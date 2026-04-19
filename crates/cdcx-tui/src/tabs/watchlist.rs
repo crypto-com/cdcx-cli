@@ -36,6 +36,13 @@ impl WatchlistTab {
 }
 
 impl Tab for WatchlistTab {
+    fn is_editing(&self) -> bool {
+        // Suppress global hotkeys while the instrument picker is open so
+        // search characters (p, q, t, o, c, etc.) reach the picker's text
+        // input instead of triggering paper-mode toggle, quit, etc.
+        self.picker.is_some()
+    }
+
     fn on_key(&mut self, key: KeyEvent, state: &mut AppState) -> bool {
         // Picker takes priority
         if let Some(ref mut picker) = self.picker {
@@ -203,5 +210,34 @@ impl Tab for WatchlistTab {
 
     fn selected_instrument(&self) -> Option<&str> {
         self.instruments.get(self.selected).map(|s| s.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_tab() -> WatchlistTab {
+        WatchlistTab {
+            instruments: vec!["BTC_USDT".into()],
+            selected: 0,
+            picker: None,
+        }
+    }
+
+    #[test]
+    fn is_editing_false_by_default() {
+        let tab = empty_tab();
+        assert!(!tab.is_editing(), "tab without picker must not be editing");
+    }
+
+    #[test]
+    fn is_editing_true_while_picker_open() {
+        let mut tab = empty_tab();
+        tab.picker = Some(InstrumentPicker::new(&["BTC_USDT".into()]));
+        assert!(
+            tab.is_editing(),
+            "picker open must suppress global hotkeys (otherwise 'p' toggles paper mode, etc.)"
+        );
     }
 }
