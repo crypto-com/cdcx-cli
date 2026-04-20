@@ -232,7 +232,7 @@ ok "Installed ${BINARY} to ${INSTALL_DIR}/${BINARY}"
 if command -v "$BINARY" > /dev/null 2>&1; then
     INSTALLED_VERSION="$("$BINARY" --version 2>/dev/null || echo "cdcx")"
     printf "\n"
-    ok "${BOLD}${INSTALLED_VERSION} installed successfully!${NC}"
+    printf "${GREEN}${BOLD} ✓ ${INSTALLED_VERSION} installed successfully!${NC}\n"
     printf "\n"
     info "Binary:  ${INSTALL_DIR}/${BINARY}"
     printf "\n"
