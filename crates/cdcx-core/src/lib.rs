@@ -4,6 +4,7 @@ pub mod config;
 pub mod env;
 pub mod error;
 pub mod openapi;
+pub mod origin;
 pub mod output;
 pub mod paper;
 pub mod safety;
