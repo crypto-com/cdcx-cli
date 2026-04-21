@@ -16,6 +16,7 @@ use crate::tabs::{DataEvent, Tab, TabKind};
 use crate::widgets::settings::{SettingsAction, SettingsPanel};
 use crate::widgets::status_bar::draw_status_bar;
 use crate::workflows::cancel_order::CancelOrderWorkflow;
+use crate::workflows::close_position::ClosePositionWorkflow;
 use crate::workflows::oco_order::OcoOrderWorkflow;
 use crate::workflows::otoco_order::OtocoOrderWorkflow;
 use crate::workflows::paper_order::PaperOrderWorkflow;
@@ -372,16 +373,50 @@ impl App {
         // Workflow triggers only if the tab didn't consume the key
         let tab_kind = TabKind::ALL.get(self.active_tab).copied();
         match (tab_kind, key.code) {
-            (Some(TabKind::Market), KeyCode::Char('t')) => {
+            (
+                Some(TabKind::Market) | Some(TabKind::Positions) | Some(TabKind::Watchlist),
+                KeyCode::Char('t'),
+            ) => {
                 let instrument = self.get_selected_instrument().unwrap_or("BTC_USDT".into());
                 if self.state.paper_mode {
                     self.workflow = Some(Box::new(PaperOrderWorkflow::new(instrument)));
                 } else {
-                    self.workflow = Some(Box::new(PlaceOrderWorkflow::new(instrument)));
+                    self.workflow =
+                        Some(Box::new(PlaceOrderWorkflow::new(instrument, &self.state)));
                 }
                 self.mode = Mode::Workflow;
             }
-            (Some(TabKind::Market) | Some(TabKind::Orders), KeyCode::Char('c')) => {
+            (Some(TabKind::Positions), KeyCode::Char('x')) => {
+                // Close position — only on the Positions tab. Requires an open
+                // position on the selected row; if the snapshot is empty we surface
+                // a toast rather than spawning a half-formed modal.
+                if self.state.paper_mode {
+                    self.state.toast(
+                        "Close-position workflow not available in paper mode",
+                        crate::state::ToastStyle::Info,
+                    );
+                } else if let Some(instrument) = self.get_selected_instrument() {
+                    match ClosePositionWorkflow::new(instrument.clone(), &self.state) {
+                        Some(wf) => {
+                            self.workflow = Some(Box::new(wf));
+                            self.mode = Mode::Workflow;
+                        }
+                        None => {
+                            self.state.toast(
+                                format!("No open position for {}", instrument),
+                                crate::state::ToastStyle::Info,
+                            );
+                        }
+                    }
+                }
+            }
+            (
+                Some(TabKind::Market)
+                | Some(TabKind::Orders)
+                | Some(TabKind::Positions)
+                | Some(TabKind::Watchlist),
+                KeyCode::Char('c'),
+            ) => {
                 if self.state.paper_mode {
                     // Cancel first open paper order for selected instrument
                     let inst = self.get_selected_instrument().unwrap_or("BTC_USDT".into());
@@ -412,12 +447,27 @@ impl App {
                         );
                     }
                 } else {
-                    let instrument = self.get_selected_instrument().unwrap_or("BTC_USDT".into());
-                    self.workflow = Some(Box::new(CancelOrderWorkflow::new(instrument)));
-                    self.mode = Mode::Workflow;
+                    // No BTC_USDT fallback — cancelling the wrong instrument is worse
+                    // than refusing. If the tab has no selection (empty list, or a tab
+                    // without instrument semantics), tell the user rather than guessing.
+                    match self.get_selected_instrument() {
+                        Some(instrument) => {
+                            self.workflow = Some(Box::new(CancelOrderWorkflow::new(instrument)));
+                            self.mode = Mode::Workflow;
+                        }
+                        None => {
+                            self.state.toast(
+                                "No instrument selected — pick a row first",
+                                crate::state::ToastStyle::Info,
+                            );
+                        }
+                    }
                 }
             }
-            (Some(TabKind::Market), KeyCode::Char('o')) => {
+            (
+                Some(TabKind::Market) | Some(TabKind::Positions) | Some(TabKind::Watchlist),
+                KeyCode::Char('o'),
+            ) => {
                 if self.state.paper_mode {
                     self.state.toast(
                         "OCO orders not available in paper mode",
@@ -429,7 +479,10 @@ impl App {
                     self.mode = Mode::Workflow;
                 }
             }
-            (Some(TabKind::Market), KeyCode::Char('O')) => {
+            (
+                Some(TabKind::Market) | Some(TabKind::Positions) | Some(TabKind::Watchlist),
+                KeyCode::Char('O'),
+            ) => {
                 if self.state.paper_mode {
                     self.state.toast(
                         "OTOCO orders not available in paper mode",
@@ -442,6 +495,56 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Recalculate portfolio total from a balance records array (WS or REST shape).
+    /// Mirrors the logic used by `private/user-balance` REST handling so WS pushes keep
+    /// the status-bar portfolio value in sync without waiting for the 30s REST tick.
+    fn apply_balance_records(&mut self, items: &[serde_json::Value]) {
+        if self.state.paper_mode {
+            return;
+        }
+        let mut total = 0.0;
+        for item in items {
+            let currency = item
+                .get("instrument_name")
+                .or_else(|| item.get("currency"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let amount: f64 = item
+                .get("total_cash_balance")
+                .or_else(|| item.get("quantity"))
+                .or_else(|| item.get("balance"))
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+            if amount <= 0.0 {
+                continue;
+            }
+            let value: f64 = item
+                .get("market_value")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| {
+                    if matches!(currency, "USDT" | "USD" | "USDC" | "DAI" | "TUSD" | "BUSD") {
+                        amount
+                    } else {
+                        let pair = format!("{}_USDT", currency);
+                        self.state
+                            .tickers
+                            .get(&pair)
+                            .map(|t| amount * t.ask)
+                            .unwrap_or(0.0)
+                    }
+                });
+            total += value;
+        }
+        if total > 0.0 {
+            if self.state.session_start_value.is_none() {
+                self.state.session_start_value = Some(total);
+            }
+            self.state.current_portfolio_value = total;
         }
     }
 
@@ -462,81 +565,82 @@ impl App {
                 .insert(ticker.instrument.clone(), ticker.clone());
         }
 
-        // Track live portfolio value for status bar from any tab
+        // Keep isolated_positions + portfolio value fresh from WS user channels.
+        if let DataEvent::PositionsSnapshot(ref positions) = event {
+            self.state.update_positions(positions);
+        }
+        if let DataEvent::BalanceSnapshot(ref balances) = event {
+            self.apply_balance_records(balances);
+        }
+
+        // Track live portfolio value for status bar from REST responses too.
         if let DataEvent::RestResponse {
             ref method,
             ref data,
         } = event
         {
-            if method == "private/user-balance" && !self.state.paper_mode {
+            if method == "private/user-balance" {
                 if let Some(arr) = data.get("data").and_then(|d| d.as_array()) {
-                    let mut total = 0.0;
-                    for item in arr {
-                        let currency = item
-                            .get("instrument_name")
-                            .or_else(|| item.get("currency"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("?");
-                        let amount: f64 = item
-                            .get("total_cash_balance")
-                            .or_else(|| item.get("quantity"))
-                            .or_else(|| item.get("balance"))
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or(0.0);
-                        if amount <= 0.0 {
-                            continue;
-                        }
-                        let value: f64 = item
-                            .get("market_value")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or_else(|| {
-                                if matches!(
-                                    currency,
-                                    "USDT" | "USD" | "USDC" | "DAI" | "TUSD" | "BUSD"
-                                ) {
-                                    amount
-                                } else {
-                                    let pair = format!("{}_USDT", currency);
-                                    self.state
-                                        .tickers
-                                        .get(&pair)
-                                        .map(|t| amount * t.ask)
-                                        .unwrap_or(0.0)
-                                }
-                            });
-                        total += value;
-                    }
-                    if total > 0.0 {
-                        if self.state.session_start_value.is_none() {
-                            self.state.session_start_value = Some(total);
-                        }
-                        self.state.current_portfolio_value = total;
-                    }
+                    self.apply_balance_records(arr);
+                }
+            }
+            if method == "private/get-positions" {
+                if let Some(arr) = data.get("data").and_then(|d| d.as_array()) {
+                    self.state.update_positions(arr);
                 }
             }
         }
 
-        // REST responses for workflows (create-order, cancel-all-orders)
+        // REST responses for workflows (create-order, cancel-all-orders).
+        // The API client returns Ok(...) with embedded code+message for business-logic
+        // rejections (api_client.rs parse_response), so we MUST inspect the body —
+        // blindly closing the modal would silently swallow errors like
+        // INSTRUMENT_MUST_USE_ISOLATED_MARGIN.
         if let DataEvent::RestResponse {
             ref method,
-            data: _,
+            ref data,
         } = event
         {
             if self.mode == Mode::Workflow {
                 if method == "private/create-order" {
-                    self.workflow = None;
-                    self.mode = Mode::Normal;
-                    self.state
-                        .toast("Order submitted", crate::state::ToastStyle::Success);
+                    if let Some(ref mut wf) = self.workflow {
+                        match wf.on_response(method, data, &mut self.state) {
+                            WorkflowResult::Done | WorkflowResult::Cancel => {
+                                self.workflow = None;
+                                self.mode = Mode::Normal;
+                            }
+                            WorkflowResult::Continue => {
+                                // Workflow keeps the modal open (e.g. to show rejection).
+                            }
+                        }
+                    }
                     return;
                 }
                 if method == "private/cancel-all-orders" {
+                    let code = data
+                        .get("data")
+                        .and_then(|d| d.get("code"))
+                        .and_then(|v| v.as_i64())
+                        .or_else(|| data.get("code").and_then(|v| v.as_i64()))
+                        .unwrap_or(0);
                     self.workflow = None;
                     self.mode = Mode::Normal;
-                    self.state
-                        .toast("Orders cancelled", crate::state::ToastStyle::Success);
+                    if code == 0 {
+                        self.state
+                            .toast("Orders cancelled", crate::state::ToastStyle::Success);
+                    } else {
+                        let message = data
+                            .get("data")
+                            .and_then(|d| d.get("message"))
+                            .or_else(|| data.get("message"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("Cancel rejected")
+                            .to_string();
+                        self.state.toast(
+                            format!("[{}] {}", code, message),
+                            crate::state::ToastStyle::Error,
+                        );
+                    }
                     return;
                 }
             }
@@ -801,10 +905,11 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
         ("h", "Toggle heatmap mode"),
         ("k", "Candlestick chart (streaming)"),
         ("m", "Compare charts (up to 4)"),
-        ("t", "Place order"),
+        ("t", "Place order (Market/Positions/Watchlist)"),
         ("o", "OCO order (stop-loss + take-profit)"),
         ("O", "OTOCO order (entry + SL + TP)"),
         ("c", "Cancel orders"),
+        ("x", "Close position (Positions tab only)"),
         ("p", "Toggle LIVE / PAPER mode"),
         ("", ""),
         ("Detail View", ""),
@@ -935,6 +1040,9 @@ mod tests {
             paper_engine: None,
             pending_navigation: None,
             instrument_types: std::collections::HashMap::new(),
+            user_connection: crate::state::ConnectionStatus::Error,
+            isolated_positions: std::collections::HashMap::new(),
+            positions_snapshot: Vec::new(),
         };
         let mut app = App::new(state, &[]);
         // Seed market tab with an instrument so workflow triggers have something to select
