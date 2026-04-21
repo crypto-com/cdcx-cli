@@ -253,6 +253,24 @@ impl App {
             return;
         }
 
+        // Volume unit toggle (v)
+        if key.code == KeyCode::Char('v') {
+            self.state.volume_unit = match self.state.volume_unit {
+                crate::state::VolumeUnit::Usd => crate::state::VolumeUnit::Notional,
+                crate::state::VolumeUnit::Notional => crate::state::VolumeUnit::Usd,
+            };
+            let label = match self.state.volume_unit {
+                crate::state::VolumeUnit::Usd => "USD",
+                crate::state::VolumeUnit::Notional => "Notional",
+            };
+            self.state.toast(
+                format!("Volume unit: {}", label),
+                crate::state::ToastStyle::Info,
+            );
+            self.activate_current_tab();
+            return;
+        }
+
         // Tab switching (1-6, Tab, BackTab)
         match key.code {
             KeyCode::Char(c @ '1'..='6') => {
@@ -783,6 +801,7 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
         ("Tab / Shift+Tab", "Next / previous tab"),
         ("q", "Quit"),
         ("?", "Toggle this help"),
+        ("v", "Toggle volume unit (USD / Notional)"),
         ("r", "Refresh current tab"),
         ("y", "Copy table data to clipboard (CSV)"),
         ("!", "Toggle price alert (+1% above current)"),
@@ -933,6 +952,7 @@ mod tests {
             price_flashes: std::collections::HashMap::new(),
             paper_mode: false,
             paper_engine: None,
+            volume_unit: crate::state::VolumeUnit::Usd,
             pending_navigation: None,
             instrument_types: std::collections::HashMap::new(),
         };

@@ -8,6 +8,7 @@ use ratatui::Frame;
 
 use std::collections::HashMap;
 
+use crate::format::{format_compact, format_price};
 use crate::state::{AppState, RestRequest};
 use crate::tabs::{DataEvent, Tab};
 use crate::widgets::candlestick::{draw_candlestick, draw_compare_charts, Candle};
@@ -910,7 +911,10 @@ impl Tab for MarketTab {
                 Cell::from("24h"),
                 Cell::from("High"),
                 Cell::from("Low"),
-                Cell::from("Volume"),
+                Cell::from(match state.volume_unit {
+                    crate::state::VolumeUnit::Usd => "Volume (USD)",
+                    crate::state::VolumeUnit::Notional => "Volume",
+                }),
             ];
             if is_perp {
                 h.push(Cell::from("Fund"));
@@ -1023,8 +1027,11 @@ impl Tab for MarketTab {
                             .style(Style::default().fg(state.theme.colors.muted)),
                         Cell::from(format_price(t.low))
                             .style(Style::default().fg(state.theme.colors.muted)),
-                        Cell::from(format_compact(t.volume_usd))
-                            .style(Style::default().fg(state.theme.colors.volume)),
+                        Cell::from(match state.volume_unit {
+                            crate::state::VolumeUnit::Usd => format_compact(t.volume_usd),
+                            crate::state::VolumeUnit::Notional => format_compact(t.volume),
+                        })
+                        .style(Style::default().fg(state.theme.colors.volume)),
                     ];
                     if is_perp {
                         let fr_color = if t.funding_rate >= 0.0 {
@@ -1145,9 +1152,13 @@ impl Tab for MarketTab {
         let mut csv = String::from("Instrument,Price,24h%,High,Low,Volume\n");
         for inst in &self.filtered_instruments {
             if let Some(t) = state.tickers.get(inst) {
+                let vol = match state.volume_unit {
+                    crate::state::VolumeUnit::Usd => t.volume_usd,
+                    crate::state::VolumeUnit::Notional => t.volume,
+                };
                 csv.push_str(&format!(
                     "{},{:.8},{:+.2},{:.8},{:.8},{:.2}\n",
-                    inst, t.ask, t.change_pct, t.high, t.low, t.volume_usd
+                    inst, t.ask, t.change_pct, t.high, t.low, vol
                 ));
             }
         }
@@ -1166,48 +1177,7 @@ impl Tab for MarketTab {
     }
 }
 
-fn format_price(price: f64) -> String {
-    if price == 0.0 {
-        return "\u{2014}".into();
-    }
-    if price >= 1000.0 {
-        let s = format!("{:.2}", price);
-        let parts: Vec<&str> = s.split('.').collect();
-        let int_part = parts[0];
-        let dec_part = parts[1];
-        let digits: Vec<char> = int_part.chars().collect();
-        let mut result = String::new();
-        for (i, &c) in digits.iter().enumerate() {
-            if i > 0 && (digits.len() - i).is_multiple_of(3) {
-                result.push(',');
-            }
-            result.push(c);
-        }
-        format!("{}.{}", result, dec_part)
-    } else if price >= 1.0 {
-        format!("{:.4}", price)
-    } else if price >= 0.01 {
-        format!("{:.6}", price)
-    } else {
-        format!("{:.8}", price)
-    }
-}
-
-fn format_compact(value: f64) -> String {
-    if value == 0.0 {
-        return "\u{2014}".into();
-    }
-    if value >= 1_000_000_000.0 {
-        format!("{:.1}B", value / 1_000_000_000.0)
-    } else if value >= 1_000_000.0 {
-        format!("{:.1}M", value / 1_000_000.0)
-    } else if value >= 1_000.0 {
-        format!("{:.1}K", value / 1_000.0)
-    } else {
-        format!("{:.0}", value)
-    }
-}
-
+// format helpers moved to crate::format
 /// Sparkline using Braille dot patterns for smooth line rendering.
 /// Each character cell is 2 dots wide × 4 dots high, giving much higher
 /// resolution than block characters.

@@ -89,6 +89,18 @@ pub enum AlertDirection {
     Below,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VolumeUnit {
+    Notional,
+    Usd,
+}
+
+impl Default for VolumeUnit {
+    fn default() -> Self {
+        VolumeUnit::Usd
+    }
+}
+
 pub struct AppState {
     pub instruments: Vec<String>,
     pub instrument_types: HashMap<String, String>,
@@ -110,6 +122,8 @@ pub struct AppState {
     pub price_flashes: HashMap<String, (bool, std::time::Instant)>,
     pub paper_mode: bool,
     pub paper_engine: Option<cdcx_core::paper::engine::PaperEngine>,
+    /// Volume display unit preference
+    pub volume_unit: VolumeUnit,
     /// Cross-tab navigation request: (target tab, instrument to show in detail).
     pub pending_navigation: Option<(crate::tabs::TabKind, String)>,
 }

@@ -115,7 +115,7 @@ pub fn draw_status_bar(frame: &mut Frame, area: Rect, state: &AppState) {
         ));
         spans.push(Span::raw("  "));
         spans.push(Span::styled(
-            "q:quit  Tab:switch  ,:settings  ?:help",
+            "q:quit  Tab:switch  v:volume unit  ,:settings  ?:help",
             Style::default().fg(state.theme.colors.muted),
         ));
     }
