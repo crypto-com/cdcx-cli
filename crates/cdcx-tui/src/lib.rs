@@ -87,7 +87,7 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     }
     let credentials = Credentials::resolve(cdcx_config.as_ref(), opts.profile.as_deref()).ok();
     let authenticated = credentials.is_some();
-    let api = Arc::new(ApiClient::new(credentials, opts.env));
+    let api = Arc::new(ApiClient::new(credentials.clone(), opts.env));
 
     // Enter terminal immediately for the loading screen
     let mut terminal = ratatui::init();
@@ -207,6 +207,11 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         theme,
         terminal_size: crossterm::terminal::size().unwrap_or((80, 24)),
         market_connection: ConnectionStatus::Connecting,
+        user_connection: if authenticated {
+            ConnectionStatus::Connecting
+        } else {
+            ConnectionStatus::Error
+        },
         api: api.clone(),
         rest_tx: rest_req_tx,
         toast: None,
@@ -217,6 +222,8 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         paper_mode: false,
         paper_engine: cdcx_core::paper::engine::PaperEngine::load_or_init(10000.0).ok(),
         pending_navigation: None,
+        isolated_positions: std::collections::HashMap::new(),
+        positions_snapshot: Vec::new(),
     };
 
     let watchlist = config.watchlist.clone();
@@ -230,7 +237,26 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
 
     // Stream manager for real-time WebSocket data
     let (stream_tx, mut stream_rx) = tokio::sync::mpsc::unbounded_channel();
-    let stream_mgr = StreamManager::spawn(opts.env, stream_tx);
+    let stream_mgr = StreamManager::spawn(opts.env, stream_tx.clone());
+
+    // User-channel stream for authenticated account data (positions, balance, orders).
+    // Kept always-on while authenticated so isolated_positions stays current across
+    // tabs — the place-order workflow needs it to auto-attach isolation_id on orders
+    // against existing isolated positions (error 617 otherwise).
+    let user_stream_mgr = if let Some(creds) = credentials {
+        Some(streaming::UserStreamManager::spawn(
+            opts.env,
+            creds,
+            vec![
+                "user.positions".into(),
+                "user.balance".into(),
+                "user.order".into(),
+            ],
+            stream_tx,
+        ))
+    } else {
+        None
+    };
 
     // Initial subscriptions based on active tab
     let mut last_subs = app.active_subscriptions();
@@ -360,6 +386,15 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
                         streaming::StreamEvent::TradeUpdate(val) => {
                             app.on_data(DataEvent::TradeSnapshot(val));
                         }
+                        streaming::StreamEvent::PositionsUpdate(positions) => {
+                            app.on_data(DataEvent::PositionsSnapshot(positions));
+                        }
+                        streaming::StreamEvent::BalanceUpdate(balances) => {
+                            app.on_data(DataEvent::BalanceSnapshot(balances));
+                        }
+                        streaming::StreamEvent::OrdersUpdate(orders) => {
+                            app.on_data(DataEvent::OrdersUpdate(orders));
+                        }
                         streaming::StreamEvent::ConnectionStatus(cs) => {
                             match cs {
                                 streaming::ConnectionStatusEvent::MarketConnected => {
@@ -375,6 +410,21 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
                                 streaming::ConnectionStatusEvent::MarketError(_) => {
                                     app.state.toast("Connection lost", state::ToastStyle::Error);
                                     app.state.market_connection = ConnectionStatus::Error;
+                                }
+                                streaming::ConnectionStatusEvent::UserConnected => {
+                                    if app.state.user_connection != ConnectionStatus::Connected {
+                                        app.state.toast(
+                                            "User stream connected",
+                                            state::ToastStyle::Success,
+                                        );
+                                    }
+                                    app.state.user_connection = ConnectionStatus::Connected;
+                                }
+                                streaming::ConnectionStatusEvent::UserReconnecting => {
+                                    app.state.user_connection = ConnectionStatus::Reconnecting;
+                                }
+                                streaming::ConnectionStatusEvent::UserError(_) => {
+                                    app.state.user_connection = ConnectionStatus::Error;
                                 }
                             }
                         }
@@ -402,6 +452,9 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     stream_mgr.shutdown();
+    if let Some(ref u) = user_stream_mgr {
+        u.shutdown();
+    }
     crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture).ok();
     ratatui::restore();
     Ok(())

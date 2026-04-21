@@ -12,6 +12,12 @@ pub enum StreamEvent {
     },
     BookUpdate(serde_json::Value),
     TradeUpdate(serde_json::Value),
+    /// `user.positions` channel — array of position records.
+    PositionsUpdate(Vec<serde_json::Value>),
+    /// `user.balance` channel — array of currency balance records.
+    BalanceUpdate(Vec<serde_json::Value>),
+    /// `user.order` channel — array of order records.
+    OrdersUpdate(Vec<serde_json::Value>),
     ConnectionStatus(ConnectionStatusEvent),
 }
 
@@ -20,6 +26,9 @@ pub enum ConnectionStatusEvent {
     MarketConnected,
     MarketReconnecting,
     MarketError(String),
+    UserConnected,
+    UserReconnecting,
+    UserError(String),
 }
 
 #[derive(Debug)]
@@ -189,5 +198,124 @@ impl StreamManager {
 
     pub fn shutdown(&self) {
         let _ = self.command_tx.send(StreamCommand::Shutdown);
+    }
+}
+
+/// Authenticated user-stream manager. Connects to ws_user_url, authenticates with the
+/// provided credentials, subscribes to the given user.* channels, and pushes updates
+/// into the same `StreamEvent` bus the market stream uses. Reconnects with backoff and
+/// re-authenticates+resubscribes on drop.
+pub struct UserStreamManager {
+    shutdown_tx: mpsc::UnboundedSender<()>,
+}
+
+impl UserStreamManager {
+    pub fn spawn(
+        env: Environment,
+        credentials: cdcx_core::auth::Credentials,
+        channels: Vec<String>,
+        event_tx: mpsc::UnboundedSender<StreamEvent>,
+    ) -> Self {
+        let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();
+
+        tokio::spawn(async move {
+            let mut client: Option<cdcx_core::ws_client::WsClient> = None;
+            let mut retry_count = 0u32;
+
+            loop {
+                if client.is_none() {
+                    let _ = event_tx.send(StreamEvent::ConnectionStatus(
+                        ConnectionStatusEvent::UserReconnecting,
+                    ));
+                    match cdcx_core::ws_client::WsClient::authenticated_connect(
+                        &env.ws_user_url(),
+                        &credentials,
+                    )
+                    .await
+                    {
+                        Ok(mut ws) => {
+                            if let Err(e) = ws.subscribe(channels.clone()).await {
+                                let _ = event_tx.send(StreamEvent::ConnectionStatus(
+                                    ConnectionStatusEvent::UserError(e.to_string()),
+                                ));
+                                retry_count += 1;
+                                let delay =
+                                    std::cmp::min(500 * 2u64.pow(retry_count.min(10)), 30_000);
+                                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                                continue;
+                            }
+                            client = Some(ws);
+                            retry_count = 0;
+                            let _ = event_tx.send(StreamEvent::ConnectionStatus(
+                                ConnectionStatusEvent::UserConnected,
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = event_tx.send(StreamEvent::ConnectionStatus(
+                                ConnectionStatusEvent::UserError(e.to_string()),
+                            ));
+                            retry_count += 1;
+                            let delay = std::cmp::min(500 * 2u64.pow(retry_count.min(10)), 30_000);
+                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                            continue;
+                        }
+                    }
+                }
+
+                let ws = client.as_mut().unwrap();
+
+                tokio::select! {
+                    msg = ws.next_message() => {
+                        match msg {
+                            Some(Ok(value)) => {
+                                Self::route(&value, &event_tx);
+                            }
+                            Some(Err(_)) | None => {
+                                client = None;
+                                continue;
+                            }
+                        }
+                    }
+                    _ = shutdown_rx.recv() => break,
+                }
+            }
+        });
+
+        Self { shutdown_tx }
+    }
+
+    fn route(value: &serde_json::Value, event_tx: &mpsc::UnboundedSender<StreamEvent>) {
+        let Some(result) = value.get("result") else {
+            return;
+        };
+        let channel = result.get("channel").and_then(|c| c.as_str()).unwrap_or("");
+        let subscription = result
+            .get("subscription")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        let is_positions = channel == "user.positions" || subscription == "user.positions";
+        let is_balance = channel == "user.balance" || subscription == "user.balance";
+        let is_orders = channel == "user.order" || subscription == "user.order";
+        if !(is_positions || is_balance || is_orders) {
+            return;
+        }
+        let Some(data) = result.get("data") else {
+            return;
+        };
+        let arr: Vec<serde_json::Value> = data
+            .as_array()
+            .cloned()
+            .unwrap_or_else(|| vec![data.clone()]);
+        if is_positions {
+            let _ = event_tx.send(StreamEvent::PositionsUpdate(arr));
+        } else if is_balance {
+            let _ = event_tx.send(StreamEvent::BalanceUpdate(arr));
+        } else if is_orders {
+            let _ = event_tx.send(StreamEvent::OrdersUpdate(arr));
+        }
+    }
+
+    pub fn shutdown(&self) {
+        let _ = self.shutdown_tx.send(());
     }
 }

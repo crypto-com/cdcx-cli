@@ -100,6 +100,7 @@ pub struct AppState {
     pub theme: Theme,
     pub terminal_size: (u16, u16),
     pub market_connection: ConnectionStatus,
+    pub user_connection: ConnectionStatus,
     pub api: Arc<ApiClient>,
     pub rest_tx: mpsc::UnboundedSender<RestRequest>,
     pub toast: Option<Toast>,
@@ -112,6 +113,13 @@ pub struct AppState {
     pub paper_engine: Option<cdcx_core::paper::engine::PaperEngine>,
     /// Cross-tab navigation request: (target tab, instrument to show in detail).
     pub pending_navigation: Option<(crate::tabs::TabKind, String)>,
+    /// instrument_name → isolation_id for currently-open isolated-margin positions.
+    /// Populated from `user.positions` WS channel + `private/get-positions` REST responses.
+    /// Required to add to / trim an existing isolated position without triggering error 617.
+    pub isolated_positions: HashMap<String, String>,
+    /// Latest snapshot of all open positions (any margin type). Source of truth for
+    /// the Positions tab and the isolated_positions cache. Updated via WS pushes.
+    pub positions_snapshot: Vec<serde_json::Value>,
 }
 
 impl AppState {
@@ -172,6 +180,42 @@ impl AppState {
             }
         }
     }
+    /// Refresh positions cache and derived isolated_positions lookup from an array of
+    /// position records (either WS `user.positions` data or REST `private/get-positions`).
+    /// Keeps ISOLATED_MARGIN bucket ids indexed by instrument_name so the place-order
+    /// workflow can auto-attach `isolation_id` to subsequent orders on the same instrument.
+    pub fn update_positions(&mut self, positions: &[serde_json::Value]) {
+        self.positions_snapshot = positions.to_vec();
+        let mut isolated = HashMap::new();
+        for pos in positions {
+            let is_isolated = pos
+                .get("isolation_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s == "ISOLATED_MARGIN")
+                .unwrap_or(false);
+            if !is_isolated {
+                continue;
+            }
+            // Skip closed positions — the exchange can echo zero-quantity rows.
+            let qty = pos
+                .get("quantity")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            if qty == 0.0 {
+                continue;
+            }
+            let (Some(instrument), Some(isolation_id)) = (
+                pos.get("instrument_name").and_then(|v| v.as_str()),
+                pos.get("isolation_id").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            isolated.insert(instrument.to_string(), isolation_id.to_string());
+        }
+        self.isolated_positions = isolated;
+    }
+
     pub fn toast(&mut self, message: impl Into<String>, style: ToastStyle) {
         self.toast = Some(Toast {
             message: message.into(),
