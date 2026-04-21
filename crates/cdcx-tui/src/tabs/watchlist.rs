@@ -196,7 +196,7 @@ impl Tab for WatchlistTab {
 
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "a:add  d:remove  \u{2191}\u{2193}:navigate  Enter:details",
+                "a:add  d:remove  \u{2191}\u{2193}:navigate  Enter:details  t:trade  o/O:OCO/OTOCO  c:cancel",
                 Style::default().fg(state.theme.colors.muted),
             ))),
             footer_area,

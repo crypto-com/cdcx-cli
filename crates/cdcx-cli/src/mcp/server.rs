@@ -135,7 +135,24 @@ impl rmcp::handler::server::ServerHandler for CdcxMcpServer {
                     }
                 }
             }
-            let params_value = serde_json::Value::Object(params);
+            let mut params_value = serde_json::Value::Object(params);
+
+            // Stamp cx2- MCP origin prefix on order-creating payloads so orders placed
+            // by AI agents are distinguishable from CLI/TUI flow in exchange databases.
+            // See cdcx-core::origin for the scheme.
+            {
+                use cdcx_core::origin::{tag_order_list_legs, tag_params_in_place, OriginChannel};
+                let method = endpoint.method.as_str();
+                if method == "private/create-order" || method == "private/advanced/create-order" {
+                    let _ = tag_params_in_place(&mut params_value, OriginChannel::Mcp);
+                } else if method == "private/create-order-list"
+                    || method == "private/create-oco-order"
+                    || method == "private/create-oto-order"
+                    || method == "private/create-otoco-order"
+                {
+                    tag_order_list_legs(&mut params_value, OriginChannel::Mcp);
+                }
+            }
 
             // Validate params against adversarial input patterns
             cdcx_core::sanitize::validate_json_payload(&params_value).map_err(|e| {

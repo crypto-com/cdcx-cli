@@ -147,18 +147,30 @@ pub async fn dispatch_dynamic(
     // Extract params from ArgMatches using schema types
     let mut params = cli_builder::extract_params(cmd_matches, &endpoint.params);
 
-    // Auto-generate client_oid for create-order if not provided (prevents DUPLICATE_CLORDID)
-    if endpoint.method == "private/create-order"
-        || endpoint.method == "private/advanced/create-order"
-    {
-        if let Some(obj) = params.as_object_mut() {
-            if !obj.contains_key("client_oid") {
-                let ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis();
-                obj.insert("client_oid".to_string(), serde_json::json!(ts.to_string()));
+    // Stamp client_oid with the cx1- CLI origin prefix so orders placed via `cdcx`
+    // are identifiable downstream. Both create-order and advanced/create-order use
+    // a scalar client_oid; create-order-list puts client_oid on each leg.
+    // See cdcx-core::origin for the prefix scheme.
+    use cdcx_core::origin::{tag_order_list_legs, tag_params_in_place, OriginChannel};
+    let is_single_order = endpoint.method == "private/create-order"
+        || endpoint.method == "private/advanced/create-order";
+    let is_order_list = endpoint.method == "private/create-order-list"
+        || endpoint.method == "private/create-oco-order"
+        || endpoint.method == "private/create-oto-order"
+        || endpoint.method == "private/create-otoco-order";
+    if is_single_order {
+        if let Some(tagged) = tag_params_in_place(&mut params, OriginChannel::Cli) {
+            if tagged.truncated {
+                eprintln!("warning: client_oid truncated to fit 36-char limit after cdcx prefix");
             }
+        }
+    } else if is_order_list {
+        let truncations = tag_order_list_legs(&mut params, OriginChannel::Cli);
+        if truncations > 0 {
+            eprintln!(
+                "warning: {} client_oid leg(s) truncated to fit 36-char limit after cdcx prefix",
+                truncations
+            );
         }
     }
 

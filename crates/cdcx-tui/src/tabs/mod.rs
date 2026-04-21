@@ -58,6 +58,12 @@ pub enum DataEvent {
         method: String,
         data: serde_json::Value,
     },
+    /// Positions snapshot from `user.positions` WS channel.
+    PositionsSnapshot(Vec<serde_json::Value>),
+    /// Balance snapshot from `user.balance` WS channel.
+    BalanceSnapshot(Vec<serde_json::Value>),
+    /// Order update from `user.order` WS channel.
+    OrdersUpdate(Vec<serde_json::Value>),
 }
 
 pub trait Tab {
