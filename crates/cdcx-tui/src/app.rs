@@ -1025,4 +1025,108 @@ mod tests {
             "'q' should be consumed by spotlight dismiss, not quit"
         );
     }
+
+    #[test]
+    fn test_volume_toggle_preserves_market_order() {
+        let mut app = make_app();
+        app.state.instruments = vec!["AAA_USDT".into(), "BBB_USDT".into(), "CCC_USDT".into()];
+        app.state
+            .instrument_types
+            .insert("AAA_USDT".into(), "CCY_PAIR".into());
+        app.state
+            .instrument_types
+            .insert("BBB_USDT".into(), "CCY_PAIR".into());
+        app.state
+            .instrument_types
+            .insert("CCC_USDT".into(), "CCY_PAIR".into());
+
+        app.state.tickers.insert(
+            "AAA_USDT".into(),
+            crate::state::TickerData {
+                instrument: "AAA_USDT".into(),
+                ask: 100.0,
+                bid: 99.0,
+                change_pct: 0.0,
+                high: 110.0,
+                low: 90.0,
+                volume: 1_000.0,
+                volume_usd: 100_000.0,
+                funding_rate: 0.0,
+            },
+        );
+        app.state.tickers.insert(
+            "BBB_USDT".into(),
+            crate::state::TickerData {
+                instrument: "BBB_USDT".into(),
+                ask: 200.0,
+                bid: 199.0,
+                change_pct: 0.0,
+                high: 210.0,
+                low: 190.0,
+                volume: 2_000.0,
+                volume_usd: 200_000.0,
+                funding_rate: 0.0,
+            },
+        );
+        app.state.tickers.insert(
+            "CCC_USDT".into(),
+            crate::state::TickerData {
+                instrument: "CCC_USDT".into(),
+                ask: 150.0,
+                bid: 149.0,
+                change_pct: 0.0,
+                high: 160.0,
+                low: 140.0,
+                volume: 1_500.0,
+                volume_usd: 150_000.0,
+                funding_rate: 0.0,
+            },
+        );
+
+        // Trigger refilter: enter search mode then backspace (refilter), then exit
+        app.on_key(key('/'));
+        let backspace = KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE);
+        app.on_key(backspace);
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        app.on_key(enter);
+
+        let csv_before = app
+            .tabs
+            .get(0)
+            .and_then(|t| t.export_csv(&app.state))
+            .expect("market csv");
+        let rows_before: Vec<&str> = csv_before.lines().skip(1).collect();
+
+        app.on_key(key('v'));
+
+        let csv_after = app
+            .tabs
+            .get(0)
+            .and_then(|t| t.export_csv(&app.state))
+            .expect("market csv");
+        let rows_after: Vec<&str> = csv_after.lines().skip(1).collect();
+
+        let insts_before: Vec<&str> = rows_before
+            .iter()
+            .map(|r| r.split(',').next().unwrap())
+            .collect();
+        let insts_after: Vec<&str> = rows_after
+            .iter()
+            .map(|r| r.split(',').next().unwrap())
+            .collect();
+
+        assert_eq!(
+            insts_before, insts_after,
+            "instrument order should not change when toggling volume unit"
+        );
+
+        // prices should remain unchanged
+        for (r_before, r_after) in rows_before.iter().zip(rows_after.iter()) {
+            let cols_b: Vec<&str> = r_before.split(',').collect();
+            let cols_a: Vec<&str> = r_after.split(',').collect();
+            assert_eq!(cols_b[1], cols_a[1], "price should not change");
+            assert_eq!(cols_b[3], cols_a[3], "high should not change");
+            assert_eq!(cols_b[4], cols_a[4], "low should not change");
+        }
+    }
 }

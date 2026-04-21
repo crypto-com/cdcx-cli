@@ -18,13 +18,13 @@
 pub mod app;
 pub mod config;
 pub mod event;
+pub mod format;
 pub mod loading;
 pub mod setup;
 pub mod state;
 pub mod streaming;
 pub mod tabs;
 pub mod theme;
-pub mod format;
 pub mod widgets;
 pub mod workflows;
 

@@ -89,16 +89,11 @@ pub enum AlertDirection {
     Below,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VolumeUnit {
-    Notional,
+    #[default]
     Usd,
-}
-
-impl Default for VolumeUnit {
-    fn default() -> Self {
-        VolumeUnit::Usd
-    }
+    Notional,
 }
 
 pub struct AppState {
