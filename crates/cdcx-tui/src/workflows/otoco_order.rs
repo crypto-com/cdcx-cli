@@ -65,7 +65,7 @@ impl OtocoOrderWorkflow {
     }
 
     fn submit(&self, state: &AppState) {
-        let params = serde_json::json!({
+        let mut params = serde_json::json!({
             "contingency_type": "OTOCO",
             "order_list": [
                 {
@@ -91,6 +91,8 @@ impl OtocoOrderWorkflow {
                 }
             ]
         });
+        // Stamp cx3- TUI origin prefix on each leg's client_oid.
+        cdcx_core::origin::tag_order_list_legs(&mut params, cdcx_core::origin::OriginChannel::Tui);
         let _ = state.rest_tx.send(RestRequest {
             method: "private/create-order-list".into(),
             params,
