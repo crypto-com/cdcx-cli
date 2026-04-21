@@ -138,23 +138,56 @@ impl Tab for PositionsTab {
                                 .to_string();
                             let mark = state.tickers.get(&instrument).map(|t| t.ask).unwrap_or(0.0);
 
+                            // The exchange encodes direction in the sign of `quantity`
+                            // (positive = long, negative = short) and does NOT send an
+                            // explicit `side` field on positions. Fall back to the
+                            // quantity-sign convention when `side` is absent.
+                            let raw_qty: f64 = item
+                                .get("quantity")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse().ok())
+                                .unwrap_or(0.0);
+                            let side = item
+                                .get("side")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| {
+                                    if raw_qty >= 0.0 {
+                                        "LONG".into()
+                                    } else {
+                                        "SHORT".into()
+                                    }
+                                });
+
+                            // The exchange returns `open_pos_cost` (total USD notional)
+                            // rather than a per-unit `average_price`. Divide to recover
+                            // the entry price. Fall back to `average_price` in case a
+                            // future API version adds it directly.
+                            let entry_price = item
+                                .get("average_price")
+                                .and_then(|v| v.as_str())
+                                .and_then(|s| s.parse::<f64>().ok())
+                                .filter(|p| *p > 0.0)
+                                .or_else(|| {
+                                    item.get("open_pos_cost")
+                                        .or_else(|| item.get("cost"))
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|s| s.parse::<f64>().ok())
+                                        .and_then(|cost| {
+                                            if raw_qty.abs() > 0.0 {
+                                                Some(cost.abs() / raw_qty.abs())
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                })
+                                .unwrap_or(0.0);
+
                             Position {
                                 instrument,
-                                side: item
-                                    .get("side")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string(),
-                                quantity: item
-                                    .get("quantity")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| s.parse().ok())
-                                    .unwrap_or(0.0),
-                                entry_price: item
-                                    .get("average_price")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| s.parse().ok())
-                                    .unwrap_or(0.0),
+                                side,
+                                quantity: raw_qty.abs(),
+                                entry_price,
                                 mark_price: mark,
                                 pnl: item
                                     .get("session_pnl")
@@ -335,7 +368,7 @@ impl Tab for PositionsTab {
 
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                "r:refresh  \u{2191}\u{2193}:navigate  Enter:detail",
+                "r:refresh  \u{2191}\u{2193}:navigate  Enter:detail  t:trade  x:close  o/O:OCO/OTOCO  c:cancel-orders",
                 Style::default().fg(state.theme.colors.muted),
             ))),
             footer_area,
@@ -352,6 +385,12 @@ impl Tab for PositionsTab {
 
     fn on_activate(&mut self) {
         self.loaded = false;
+    }
+
+    fn selected_instrument(&self) -> Option<&str> {
+        self.positions
+            .get(self.selected)
+            .map(|p| p.instrument.as_str())
     }
 }
 

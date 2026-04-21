@@ -306,4 +306,10 @@ impl Tab for OrdersTab {
     fn on_activate(&mut self) {
         self.loaded = false;
     }
+
+    fn selected_instrument(&self) -> Option<&str> {
+        self.orders
+            .get(self.selected)
+            .map(|o| o.instrument.as_str())
+    }
 }
