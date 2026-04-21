@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use crate::format::{format_compact, format_price};
 use crate::state::AppState;
 use crate::tabs::{DataEvent, Tab, TabKind};
 use crate::widgets::instrument_picker::{InstrumentPicker, PickerResult};
@@ -118,7 +119,10 @@ impl Tab for WatchlistTab {
             Cell::from("24h"),
             Cell::from("High"),
             Cell::from("Low"),
-            Cell::from("Volume"),
+            Cell::from(match state.volume_unit {
+                crate::state::VolumeUnit::Usd => "Volume (USD)",
+                crate::state::VolumeUnit::Notional => "Volume",
+            }),
         ])
         .style(
             Style::default()
@@ -159,15 +163,18 @@ impl Tab for WatchlistTab {
                     };
                     Row::new(vec![
                         Cell::from(inst.as_str()),
-                        Cell::from(format!("{:.2}", t.ask)),
+                        Cell::from(format_price(t.ask)),
                         Cell::from(format!("{:+.2}%", t.change_pct * 100.0))
                             .style(Style::default().fg(change_color)),
-                        Cell::from(format!("{:.2}", t.high))
+                        Cell::from(format_price(t.high))
                             .style(Style::default().fg(state.theme.colors.muted)),
-                        Cell::from(format!("{:.2}", t.low))
+                        Cell::from(format_price(t.low))
                             .style(Style::default().fg(state.theme.colors.muted)),
-                        Cell::from(format!("{:.0}", t.volume))
-                            .style(Style::default().fg(state.theme.colors.volume)),
+                        Cell::from(match state.volume_unit {
+                            crate::state::VolumeUnit::Usd => format_compact(t.volume_usd),
+                            crate::state::VolumeUnit::Notional => format_compact(t.volume),
+                        })
+                        .style(Style::default().fg(state.theme.colors.volume)),
                     ])
                     .style(row_style)
                 } else {

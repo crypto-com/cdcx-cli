@@ -18,6 +18,7 @@
 pub mod app;
 pub mod config;
 pub mod event;
+pub mod format;
 pub mod loading;
 pub mod setup;
 pub mod state;
@@ -221,6 +222,7 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         price_flashes: std::collections::HashMap::new(),
         paper_mode: false,
         paper_engine: cdcx_core::paper::engine::PaperEngine::load_or_init(10000.0).ok(),
+        volume_unit: crate::state::VolumeUnit::Usd,
         pending_navigation: None,
         isolated_positions: std::collections::HashMap::new(),
         positions_snapshot: Vec::new(),
