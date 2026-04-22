@@ -11,7 +11,9 @@ use std::collections::HashMap;
 use crate::format::{format_compact, format_price};
 use crate::state::{AppState, RestRequest};
 use crate::tabs::{DataEvent, Tab};
-use crate::widgets::candlestick::{draw_candlestick, draw_compare_charts, Candle};
+use crate::widgets::candlestick::{
+    draw_candlestick, draw_compare_charts, fill_candle_gaps, Candle,
+};
 use crate::widgets::detail_view::draw_detail;
 use crate::widgets::instrument_picker::{InstrumentPicker, PickerResult};
 
@@ -756,16 +758,17 @@ impl Tab for MarketTab {
                 return;
             }
             ViewMode::Chart => {
-                let candles = self
+                let raw = self
                     .candles
                     .get(&self.detail_instrument)
                     .map(|v| v.as_slice())
                     .unwrap_or(&[]);
+                let filled = fill_candle_gaps(raw, self.timeframe_ms());
                 draw_candlestick(
                     frame,
                     area,
                     &self.detail_instrument,
-                    candles,
+                    &filled,
                     &self.timeframe,
                     &state.theme.colors,
                     &format!(
@@ -776,13 +779,18 @@ impl Tab for MarketTab {
                 return;
             }
             ViewMode::Compare => {
-                let charts: Vec<(&str, &[Candle])> = self
+                let interval_ms = self.timeframe_ms();
+                let filled: Vec<(String, Vec<Candle>)> = self
                     .compare_instruments
                     .iter()
                     .map(|inst| {
-                        let candles = self.candles.get(inst).map(|v| v.as_slice()).unwrap_or(&[]);
-                        (inst.as_str(), candles)
+                        let raw = self.candles.get(inst).map(|v| v.as_slice()).unwrap_or(&[]);
+                        (inst.clone(), fill_candle_gaps(raw, interval_ms))
                     })
+                    .collect();
+                let charts: Vec<(&str, &[Candle])> = filled
+                    .iter()
+                    .map(|(inst, candles)| (inst.as_str(), candles.as_slice()))
                     .collect();
 
                 let [chart_area, footer_area] =

@@ -842,11 +842,12 @@ impl App {
                     .first() // Market tab (index 0)
                     .map(|tab| tab.get_candles(&inst))
                     .unwrap_or(&[]);
+                let filled = crate::widgets::candlestick::fill_candle_gaps(candles, 3_600_000);
                 crate::widgets::candlestick::draw_candlestick(
                     frame,
                     right,
                     &inst,
-                    candles,
+                    &filled,
                     "1h",
                     &self.state.theme.colors,
                     "\\:close split",

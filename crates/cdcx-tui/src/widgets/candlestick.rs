@@ -47,6 +47,36 @@ fn parse_f64(val: &serde_json::Value, key: &str) -> Option<f64> {
         .and_then(|s| s.parse().ok())
 }
 
+/// Fill gaps in a candle series by inserting synthetic zero-volume flat candles for any
+/// timeframe periods that the exchange omitted (illiquid instruments like RWA perps return
+/// candles only for periods with trading activity). Synthetic candles carry forward the
+/// previous close as O/H/L/C with `volume = 0`, so the renderer draws them as a flat line.
+pub fn fill_candle_gaps(candles: &[Candle], interval_ms: u64) -> Vec<Candle> {
+    if interval_ms == 0 || candles.len() < 2 {
+        return candles.to_vec();
+    }
+    let mut out: Vec<Candle> = Vec::with_capacity(candles.len());
+    out.push(candles[0].clone());
+    for next in &candles[1..] {
+        let prev_close = out.last().map(|c| c.close).unwrap_or(0.0);
+        let prev_ts = out.last().map(|c| c.timestamp).unwrap_or(0);
+        let mut t = prev_ts.saturating_add(interval_ms);
+        while t < next.timestamp {
+            out.push(Candle {
+                open: prev_close,
+                high: prev_close,
+                low: prev_close,
+                close: prev_close,
+                volume: 0.0,
+                timestamp: t,
+            });
+            t = t.saturating_add(interval_ms);
+        }
+        out.push(next.clone());
+    }
+    out
+}
+
 /// Draw a single-instrument candlestick chart with header and footer.
 pub fn draw_candlestick(
     frame: &mut Frame,
@@ -283,6 +313,7 @@ pub fn render_chart_panel(frame: &mut Frame, area: Rect, candles: &[Candle], col
     let mut lines: Vec<Line> = Vec::with_capacity(chart_height);
 
     // Price chart rows
+    let row_step = price_range / (price_rows.max(2) - 1) as f64;
     for row in 0..price_rows {
         let price_at_row = max_price - (row as f64 / (price_rows.max(2) - 1) as f64) * price_range;
         let mut spans: Vec<Span> = Vec::new();
@@ -293,6 +324,25 @@ pub fn render_chart_panel(frame: &mut Frame, area: Rect, candles: &[Candle], col
         ));
 
         for candle in &visible {
+            // Synthetic no-trade candles (gap-fill) have zero volume and zero range —
+            // snap them to the nearest price row and draw a dim dash so illiquid
+            // periods render as a flat line instead of an empty column.
+            let is_synthetic =
+                candle.volume == 0.0 && candle.open == candle.close && candle.high == candle.low;
+            if is_synthetic {
+                if (price_at_row - candle.close).abs() <= row_step / 2.0 {
+                    // Fill the full 3-char cell (no inter-cell space) so adjacent
+                    // synthetic candles join into one continuous horizontal line.
+                    spans.push(Span::styled(
+                        "\u{2500}\u{2500}\u{2500}",
+                        Style::default().fg(colors.muted),
+                    ));
+                } else {
+                    spans.push(Span::raw("   "));
+                }
+                continue;
+            }
+
             let is_bullish = candle.close >= candle.open;
             let body_top = candle.open.max(candle.close);
             let body_bot = candle.open.min(candle.close);
@@ -431,5 +481,60 @@ fn format_chart_price(price: f64) -> String {
         format!("{:.2}", price)
     } else {
         format!("{:.4}", price)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn candle(ts: u64, close: f64) -> Candle {
+        Candle {
+            open: close,
+            high: close,
+            low: close,
+            close,
+            volume: 1.0,
+            timestamp: ts,
+        }
+    }
+
+    #[test]
+    fn fill_candle_gaps_inserts_flat_candles_for_missing_periods() {
+        // 1h interval; missing two periods between t=0 and t=3h
+        let interval_ms = 3_600_000u64;
+        let input = vec![candle(0, 100.0), candle(3 * interval_ms, 110.0)];
+        let out = fill_candle_gaps(&input, interval_ms);
+
+        // Expect 4 candles total: real@0, synthetic@1h, synthetic@2h, real@3h
+        assert_eq!(out.len(), 4, "two gaps must be filled");
+        assert_eq!(out[1].timestamp, interval_ms);
+        assert_eq!(out[2].timestamp, 2 * interval_ms);
+        // Synthetic carry-forward: O=H=L=C=prev close, v=0
+        for synthetic in &out[1..=2] {
+            assert_eq!(synthetic.open, 100.0);
+            assert_eq!(synthetic.close, 100.0);
+            assert_eq!(synthetic.high, 100.0);
+            assert_eq!(synthetic.low, 100.0);
+            assert_eq!(synthetic.volume, 0.0);
+        }
+        // Real candle preserved at correct index
+        assert_eq!(out[3].close, 110.0);
+        assert_eq!(out[3].volume, 1.0);
+    }
+
+    #[test]
+    fn fill_candle_gaps_noop_when_contiguous() {
+        let interval_ms = 60_000u64;
+        let input = vec![candle(0, 1.0), candle(interval_ms, 2.0)];
+        let out = fill_candle_gaps(&input, interval_ms);
+        assert_eq!(out.len(), 2);
+    }
+
+    #[test]
+    fn fill_candle_gaps_handles_empty_and_single() {
+        assert!(fill_candle_gaps(&[], 60_000).is_empty());
+        let one = vec![candle(0, 1.0)];
+        assert_eq!(fill_candle_gaps(&one, 60_000).len(), 1);
     }
 }
