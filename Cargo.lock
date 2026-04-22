@@ -237,7 +237,7 @@ dependencies = [
 
 [[package]]
 name = "cdcx-cli"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "assert_cmd",
  "cdcx-core",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "cdcx-core"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "chrono",
  "dirs 6.0.0",
@@ -280,7 +280,7 @@ dependencies = [
 
 [[package]]
 name = "cdcx-tui"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "cdcx-core",
  "chrono",
