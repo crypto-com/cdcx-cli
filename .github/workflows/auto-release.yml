@@ -1,7 +1,15 @@
 name: Auto Release
 
-# Triggers when Cargo.toml version changes on main (e.g. after a version bump PR merges).
-# Checks if the version tag already exists — if not, creates it, which triggers release.yml.
+# Fires when Cargo.toml version changes on main (e.g. after a version-bump PR merges).
+# If the corresponding tag doesn't yet exist, this workflow dispatches release.yml with
+# the detected version. release.yml creates the tag itself on workflow_dispatch, then
+# runs the full test + multi-target build + publish pipeline.
+#
+# Why dispatch instead of pushing a tag here?
+#   Tag pushes authenticated by GITHUB_TOKEN do not trigger downstream workflows (GitHub's
+#   recursion-prevention rule). That silently breaks the tag -> release.yml chain, even
+#   though the tag shows up on the remote. workflow_dispatch is an explicit API call, not
+#   a push event, so the recursion block does not apply -- release.yml runs as intended.
 
 on:
   push:
@@ -10,7 +18,8 @@ on:
       - 'Cargo.toml'
 
 permissions:
-  contents: write
+  contents: read
+  actions: write  # required to dispatch release.yml
 
 jobs:
   maybe-release:
@@ -38,26 +47,31 @@ jobs:
             exit 1
           fi
 
-      - name: Check if tag already exists
+      - name: Check if release tag already exists on the remote
         id: check
         env:
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
+          # Query the API directly: a tag can exist locally in the fetched history
+          # without being the canonical release tag on GitHub, and vice versa. The API
+          # is the source of truth for "has this release already been cut".
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Tag $TAG already exists, skipping"
+            echo "Tag $TAG already exists on remote, skipping"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "Tag $TAG is new — will create release"
+            echo "Tag $TAG is new -- will dispatch release.yml"
           fi
 
-      - name: Create tag and trigger release
+      - name: Dispatch release workflow
         if: steps.check.outputs.exists == 'false'
         env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$TAG" -m "Release $TAG"
-          git push origin "$TAG"
-          echo "::notice::Created tag $TAG — release workflow will start automatically"
+          gh workflow run release.yml \
+            --ref "$GITHUB_SHA" \
+            -f version="$VERSION"
+          echo "::notice::Dispatched release.yml for $TAG"
