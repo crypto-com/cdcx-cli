@@ -7,6 +7,7 @@ pub mod openapi;
 pub mod origin;
 pub mod output;
 pub mod paper;
+pub mod price_api;
 pub mod safety;
 pub mod sanitize;
 pub mod schema;

@@ -38,3 +38,6 @@ docs/superpowers/
 docs/feedbacks/
 
 .playwright-mcp
+
+# Local research artefacts (HAR captures, scratch)
+docs/*.har

@@ -98,11 +98,14 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     let mut loading_state = loading::LoadingState::new();
 
     // Spawn both fetches concurrently, collect results with animated loading
-    let (instruments, instrument_types, initial_tickers) = {
+    let (instruments, instrument_types, instrument_bases, initial_tickers) = {
         use tokio::sync::oneshot;
 
-        let (inst_tx, mut inst_rx) =
-            oneshot::channel::<(Vec<String>, std::collections::HashMap<String, String>)>();
+        let (inst_tx, mut inst_rx) = oneshot::channel::<(
+            Vec<String>,
+            std::collections::HashMap<String, String>,
+            std::collections::HashMap<String, String>,
+        )>();
         let (tick_tx, mut tick_rx) =
             oneshot::channel::<std::collections::HashMap<String, TickerData>>();
 
@@ -185,8 +188,13 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        let (inst_names, inst_types) = instruments.unwrap_or_default();
-        (inst_names, inst_types, tickers.unwrap_or_default())
+        let (inst_names, inst_types, inst_bases) = instruments.unwrap_or_default();
+        (
+            inst_names,
+            inst_types,
+            inst_bases,
+            tickers.unwrap_or_default(),
+        )
     };
 
     // Transition from loading to dashboard — drop the fast-tick event handler
@@ -197,9 +205,15 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     let (rest_resp_tx, mut rest_resp_rx) =
         tokio::sync::mpsc::unbounded_channel::<(String, Result<serde_json::Value, String>)>();
 
+    // Price-api events flow back here from the Discover tab's fetch tasks.
+    let (price_api_tx, mut price_api_rx) =
+        tokio::sync::mpsc::unbounded_channel::<state::PriceApiEvent>();
+    let price_api_client = std::sync::Arc::new(cdcx_core::price_api::PriceApiClient::new());
+
     let state = AppState {
         instruments,
         instrument_types,
+        instrument_bases,
         tickers: initial_tickers,
         sparklines: std::collections::HashMap::new(),
         alerts: vec![],
@@ -215,6 +229,9 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         },
         api: api.clone(),
         rest_tx: rest_req_tx,
+        price_api: price_api_client.clone(),
+        price_api_tx: price_api_tx.clone(),
+        price_directory: None,
         toast: None,
         session_start_value: None,
         current_portfolio_value: 0.0,
@@ -433,6 +450,11 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            price_api_event = price_api_rx.recv() => {
+                if let Some(ev) = price_api_event {
+                    app.on_price_api(ev);
+                }
+            }
             rest_resp = rest_resp_rx.recv() => {
                 if let Some((method, result)) = rest_resp {
                     match result {
@@ -466,11 +488,19 @@ fn load_cdcx_config() -> Result<Option<cdcx_core::config::Config>, cdcx_core::er
     cdcx_core::config::Config::load_default()
 }
 
-/// Fetches instruments and their types from the API.
-/// Returns (sorted instrument names, symbol → inst_type mapping).
+/// Fetches instruments, their types, and their base currencies from the API.
+///
+/// The base_ccy mapping is authoritative for research-pane lookups — naming
+/// conventions vary by `inst_type` (`BTC_USDT` for CCY_PAIR, `1INCHUSD-PERP`
+/// for PERPETUAL_SWAP, `BTCUSD-260424` for FUTURE), so symbol parsing is
+/// brittle. The exchange gives us `base_ccy` on every record — use it.
 async fn fetch_instruments(
     api: &ApiClient,
-) -> (Vec<String>, std::collections::HashMap<String, String>) {
+) -> (
+    Vec<String>,
+    std::collections::HashMap<String, String>,
+    std::collections::HashMap<String, String>,
+) {
     match api
         .public_request("public/get-instruments", serde_json::json!({}))
         .await
@@ -478,6 +508,7 @@ async fn fetch_instruments(
         Ok(val) => {
             let mut names = Vec::new();
             let mut types = std::collections::HashMap::new();
+            let mut bases = std::collections::HashMap::new();
             if let Some(arr) = val.get("data").and_then(|d| d.as_array()) {
                 for item in arr {
                     if let Some(symbol) = item
@@ -492,13 +523,20 @@ async fn fetch_instruments(
                             .to_string();
                         names.push(symbol.to_string());
                         types.insert(symbol.to_string(), inst_type);
+                        if let Some(base) = item.get("base_ccy").and_then(|v| v.as_str()) {
+                            bases.insert(symbol.to_string(), base.to_string());
+                        }
                     }
                 }
             }
             names.sort();
-            (names, types)
+            (names, types, bases)
         }
-        Err(_) => (vec![], std::collections::HashMap::new()),
+        Err(_) => (
+            vec![],
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+        ),
     }
 }
 

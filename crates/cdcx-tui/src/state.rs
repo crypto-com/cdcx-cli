@@ -1,9 +1,54 @@
 use crate::theme::Theme;
 use cdcx_core::api_client::ApiClient;
 use cdcx_core::env::Environment;
+use cdcx_core::price_api::{
+    DirectoryEntry, MarketPair, PriceApiClient, RedditPost, SocialMetrics, StatisticsResponse,
+    TokenDirectory, TrendingToken, VideoNews,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+/// Event surfaced from price-api.crypto.com background fetches. Each variant
+/// carries the slug it was fetched against so the tab can reject stale results
+/// from a previous instrument selection.
+#[derive(Debug)]
+pub enum PriceApiEvent {
+    Directory(TokenDirectory),
+    Trending(Vec<TrendingToken>),
+    Statistics {
+        slug: String,
+        data: StatisticsResponse,
+    },
+    Social {
+        slug: String,
+        data: SocialMetrics,
+    },
+    MarketPairs {
+        slug: String,
+        data: Vec<MarketPair>,
+    },
+    SocialNews {
+        token_id: i64,
+        data: Vec<RedditPost>,
+    },
+    VideoNews {
+        token_id: i64,
+        data: Vec<VideoNews>,
+    },
+    /// Carries the short display message, not a full error envelope — the tab
+    /// surfaces it as a toast and carries on with whatever panels did load.
+    FetchError {
+        kind: &'static str,
+        message: String,
+    },
+    /// Directory resolution result. `None` means the base asset wasn't in the
+    /// directory (e.g. a listing-only or perp-only instrument).
+    Resolved {
+        instrument: String,
+        entry: Option<DirectoryEntry>,
+    },
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct TickerData {
@@ -99,6 +144,11 @@ pub enum VolumeUnit {
 pub struct AppState {
     pub instruments: Vec<String>,
     pub instrument_types: HashMap<String, String>,
+    /// instrument symbol → base currency (e.g. `BTC_USDT` → `BTC`,
+    /// `1INCHUSD-PERP` → `1INCH`, `BTCUSD-260424` → `BTC`). Authoritative
+    /// source for price-api lookups; the exchange instruments response
+    /// already classifies every symbol so we never parse.
+    pub instrument_bases: HashMap<String, String>,
     pub tickers: HashMap<String, TickerData>,
     pub sparklines: HashMap<String, Vec<f64>>,
     pub alerts: Vec<PriceAlert>,
@@ -110,6 +160,15 @@ pub struct AppState {
     pub user_connection: ConnectionStatus,
     pub api: Arc<ApiClient>,
     pub rest_tx: mpsc::UnboundedSender<RestRequest>,
+    /// Shared client for the consumer-web price-api. Cheap to clone (Arc
+    /// under the hood) and thread-safe, so tabs spawn fetches directly.
+    pub price_api: Arc<PriceApiClient>,
+    /// Channel for price-api responses. The Discover tab writes fetch tasks
+    /// that push events here; the main loop forwards them to `app.on_price_api`.
+    pub price_api_tx: mpsc::UnboundedSender<PriceApiEvent>,
+    /// Cached slug/id directory. Populated on first Discover activation and
+    /// reused until the 24h TTL expires.
+    pub price_directory: Option<TokenDirectory>,
     pub toast: Option<Toast>,
     pub session_start_value: Option<f64>,
     pub current_portfolio_value: f64,

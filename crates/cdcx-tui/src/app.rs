@@ -43,6 +43,10 @@ pub struct App {
     workflow: Option<Box<dyn Workflow>>,
     settings: Option<SettingsPanel>,
     last_click: Option<(u16, u16, std::time::Instant)>, // (row, col, time) for double-click
+    /// Bloomberg-style docked research pane shown on the right side in
+    /// split view. Shared across tabs so selection state persists when
+    /// switching between Market / Watchlist / Positions.
+    pub research: crate::widgets::research_pane::ResearchPane,
 }
 
 impl App {
@@ -69,6 +73,7 @@ impl App {
             workflow: None,
             settings: None,
             last_click: None,
+            research: crate::widgets::research_pane::ResearchPane::new(),
         }
     }
 
@@ -182,7 +187,7 @@ impl App {
                 .map(|tab| tab.on_key(key, &mut self.state))
                 .unwrap_or(false);
             if consumed {
-                // Fetch candles for split view if instrument changed
+                // Fetch candles + update research pane on selection change
                 if self.split_view {
                     let new_instrument = self.get_selected_instrument();
                     if new_instrument != prev_instrument {
@@ -192,6 +197,7 @@ impl App {
                                 params: serde_json::json!({"instrument_name": inst, "timeframe": "1h"}),
                                 is_private: false,
                             });
+                            self.research.set_instrument(inst, &self.state);
                         }
                     }
                 }
@@ -215,14 +221,17 @@ impl App {
             }
             KeyCode::Char('\\') => {
                 self.split_view = !self.split_view;
-                // Fetch candle data for selected instrument when entering split
                 if self.split_view {
+                    // Seed both the chart data and the research pane off the
+                    // currently-selected instrument so the right pane isn't
+                    // blank on first open.
                     if let Some(inst) = self.get_selected_instrument() {
                         let _ = self.state.rest_tx.send(crate::state::RestRequest {
                             method: "public/get-candlestick".into(),
                             params: serde_json::json!({"instrument_name": inst, "timeframe": "1h"}),
                             is_private: false,
                         });
+                        self.research.set_instrument(inst, &self.state);
                     }
                 }
                 return;
@@ -233,6 +242,22 @@ impl App {
                     self.tick_rate_ms,
                     self.state.ticker_speed_divisor,
                 ));
+                return;
+            }
+            // Research pane controls only work in split view. Chart mode
+            // inside the Market tab also binds `[` / `]` for timeframe
+            // cycling, so we check `split_view` first and let the tab claim
+            // them otherwise.
+            KeyCode::Char(']') if self.split_view => {
+                self.research.cycle_section_forward();
+                return;
+            }
+            KeyCode::Char('[') if self.split_view => {
+                self.research.cycle_section_backward();
+                return;
+            }
+            KeyCode::Char('N') if self.split_view => {
+                self.research.cycle_news_subtab();
                 return;
             }
             _ => {}
@@ -370,7 +395,8 @@ impl App {
             return;
         }
 
-        // In split view, refetch candles when selected instrument changes
+        // In split view, refetch candles + re-target research pane when the
+        // selected instrument changes.
         if self.split_view {
             let new_instrument = self.get_selected_instrument();
             if new_instrument != prev_instrument {
@@ -380,6 +406,7 @@ impl App {
                         params: serde_json::json!({"instrument_name": inst, "timeframe": "1h"}),
                         is_private: false,
                     });
+                    self.research.set_instrument(inst, &self.state);
                 }
             }
         }
@@ -693,6 +720,13 @@ impl App {
         }
     }
 
+    /// Dispatch a price-api event to the research pane, regardless of which
+    /// tab is currently active — background fetches can finish after the
+    /// user has moved away, and the pane's stale-response guard handles that.
+    pub fn on_price_api(&mut self, event: crate::state::PriceApiEvent) {
+        self.research.apply_event(&event, &mut self.state);
+    }
+
     pub fn on_tick(&mut self) {
         self.tick_count += 1;
 
@@ -858,24 +892,15 @@ impl App {
                 tab.draw(frame, left, &self.state);
             }
 
-            // Right panel: chart for selected instrument using Market tab's candle data
-            if let Some(inst) = self.get_selected_instrument() {
-                let candles = self
-                    .tabs
-                    .first() // Market tab (index 0)
-                    .map(|tab| tab.get_candles(&inst))
-                    .unwrap_or(&[]);
-                let filled = crate::widgets::candlestick::fill_candle_gaps(candles, 3_600_000);
-                crate::widgets::candlestick::draw_candlestick(
-                    frame,
-                    right,
-                    &inst,
-                    &filled,
-                    "1h",
-                    &self.state.theme.colors,
-                    "\\:close split",
-                );
-            }
+            // Right panel: Bloomberg-style research pane (Overview / Chart /
+            // News sections). Candles are sourced from the Market tab — one
+            // authoritative store for OHLC across the app.
+            let candles: &[crate::widgets::candlestick::Candle] = self
+                .research
+                .selected_instrument()
+                .and_then(|inst| self.tabs.first().map(|tab| tab.get_candles(inst)))
+                .unwrap_or(&[]);
+            self.research.draw(frame, right, candles, &self.state);
         } else if let Some(tab) = self.tabs.get(self.active_tab) {
             tab.draw(frame, content_area, &self.state);
         }
@@ -909,7 +934,7 @@ impl App {
 
 fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
     let width = 58u16;
-    let height = 33u16;
+    let height = 40u16;
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     let modal = Rect::new(x, y, width.min(area.width), height.min(area.height));
@@ -973,6 +998,12 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
         ("Orders / History", ""),
         ("r", "Refresh data"),
         ("n / p", "Next / previous page (history)"),
+        ("", ""),
+        ("Research Pane (split view)", ""),
+        ("\\", "Toggle split view"),
+        ("[ / ]", "Cycle section (Overview/Chart/News)"),
+        ("N", "Cycle news sub-tab (News section)"),
+        ("r", "Refresh research panels"),
         ("", ""),
         ("Press any key to close", ""),
     ];
@@ -1074,6 +1105,12 @@ mod tests {
             market_connection: crate::state::ConnectionStatus::Connecting,
             api: Arc::new(ApiClient::new(None, Environment::Production)),
             rest_tx: tx,
+            price_api: Arc::new(cdcx_core::price_api::PriceApiClient::new()),
+            price_api_tx: {
+                let (ptx, _prx) = mpsc::unbounded_channel();
+                ptx
+            },
+            price_directory: None,
             toast: None,
             session_start_value: None,
             current_portfolio_value: 0.0,
@@ -1084,6 +1121,7 @@ mod tests {
             volume_unit: crate::state::VolumeUnit::Usd,
             pending_navigation: None,
             instrument_types: std::collections::HashMap::new(),
+            instrument_bases: std::collections::HashMap::new(),
             user_connection: crate::state::ConnectionStatus::Error,
             isolated_positions: std::collections::HashMap::new(),
             positions_snapshot: Vec::new(),
