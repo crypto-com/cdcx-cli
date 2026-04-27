@@ -10,7 +10,7 @@ use crate::tabs::{DataEvent, Tab};
 
 #[derive(Debug, Clone)]
 struct Order {
-    _order_id: String,
+    order_id: String,
     instrument: String,
     side: String,
     order_type: String,
@@ -18,6 +18,64 @@ struct Order {
     quantity: f64,
     filled_qty: f64,
     status: String,
+}
+
+fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status.to_ascii_uppercase().as_str(),
+        "FILLED" | "CANCELED" | "CANCELLED" | "REJECTED" | "EXPIRED"
+    )
+}
+
+fn parse_order_record(item: &serde_json::Value) -> Option<Order> {
+    let order_id = item
+        .get("order_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if order_id.is_empty() {
+        return None;
+    }
+    Some(Order {
+        order_id,
+        instrument: item
+            .get("instrument_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        side: item
+            .get("side")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        order_type: item
+            .get("order_type")
+            .or_else(|| item.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        price: item
+            .get("limit_price")
+            .or_else(|| item.get("price"))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0),
+        quantity: item
+            .get("quantity")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0),
+        filled_qty: item
+            .get("cumulative_quantity")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0),
+        status: item
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+    })
 }
 
 pub struct OrdersTab {
@@ -58,7 +116,7 @@ impl OrdersTab {
                 .open_orders
                 .iter()
                 .map(|o| Order {
-                    _order_id: o.order_id.to_string(),
+                    order_id: o.order_id.to_string(),
                     instrument: o.instrument_name.clone(),
                     side: format!("{:?}", o.side).to_uppercase(),
                     order_type: format!("{:?}", o.order_type).to_uppercase(),
@@ -70,6 +128,33 @@ impl OrdersTab {
                 .collect();
             self.loaded = true;
         }
+    }
+
+    /// Apply a batch of order deltas from the `user.order` WS channel.
+    /// Terminal statuses remove the row; all others upsert by `order_id`.
+    fn apply_order_updates(&mut self, records: &[serde_json::Value]) {
+        for item in records {
+            let Some(order) = parse_order_record(item) else {
+                continue;
+            };
+            if is_terminal_status(&order.status) {
+                self.orders.retain(|o| o.order_id != order.order_id);
+                continue;
+            }
+            if let Some(existing) = self
+                .orders
+                .iter_mut()
+                .find(|o| o.order_id == order.order_id)
+            {
+                *existing = order;
+            } else {
+                self.orders.push(order);
+            }
+        }
+        if self.selected >= self.orders.len() {
+            self.selected = self.orders.len().saturating_sub(1);
+        }
+        self.loaded = true;
     }
 }
 
@@ -110,53 +195,14 @@ impl Tab for OrdersTab {
                 if let Some(arr) = arr_opt {
                     self.orders = arr
                         .iter()
-                        .map(|item| Order {
-                            _order_id: item
-                                .get("order_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            instrument: item
-                                .get("instrument_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            side: item
-                                .get("side")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            order_type: item
-                                .get("order_type")
-                                .or_else(|| item.get("type"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            price: item
-                                .get("limit_price")
-                                .or_else(|| item.get("price"))
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0.0),
-                            quantity: item
-                                .get("quantity")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0.0),
-                            filled_qty: item
-                                .get("cumulative_quantity")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0.0),
-                            status: item
-                                .get("status")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                        })
+                        .filter_map(parse_order_record)
+                        .filter(|o| !is_terminal_status(&o.status))
                         .collect();
                     self.loaded = true;
                 }
+            }
+            DataEvent::OrdersUpdate(records) => {
+                self.apply_order_updates(records);
             }
             _ => {
                 if !self.loaded {
@@ -304,7 +350,9 @@ impl Tab for OrdersTab {
     }
 
     fn on_activate(&mut self) {
-        self.loaded = false;
+        // Intentionally no-op: live state is kept in sync via user.order WS upserts,
+        // so we don't wipe the cache on tab switch. The initial REST prime runs
+        // automatically on first activation via the on_data fallthrough.
     }
 
     fn selected_instrument(&self) -> Option<&str> {

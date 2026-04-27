@@ -85,6 +85,101 @@ impl PositionsTab {
             });
         }
     }
+
+    /// Rebuild the positions list from a raw records array — shared between
+    /// the REST response arm and the `user.positions` WS snapshot arm so the
+    /// field-parsing heuristics stay in one place.
+    fn rebuild_positions(&mut self, records: &[serde_json::Value], state: &AppState) {
+        self.positions = records
+            .iter()
+            .filter_map(|item| parse_position_record(item, state))
+            .collect();
+        if self.selected >= self.positions.len() {
+            self.selected = self.positions.len().saturating_sub(1);
+        }
+        self.loaded = true;
+    }
+}
+
+/// Parse a single position record from the exchange into the row struct.
+/// Returns `None` for zero-quantity rows — the exchange echoes closed
+/// positions and we don't want them cluttering the table.
+fn parse_position_record(item: &serde_json::Value, state: &AppState) -> Option<Position> {
+    let instrument = item
+        .get("instrument_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if instrument.is_empty() {
+        return None;
+    }
+
+    // The exchange encodes direction in the sign of `quantity`
+    // (positive = long, negative = short) and does NOT send an
+    // explicit `side` field on positions. Fall back to the
+    // quantity-sign convention when `side` is absent.
+    let raw_qty: f64 = item
+        .get("quantity")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    if raw_qty.abs() < 1e-12 {
+        return None;
+    }
+    let side = item
+        .get("side")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            if raw_qty >= 0.0 {
+                "LONG".into()
+            } else {
+                "SHORT".into()
+            }
+        });
+
+    // The exchange returns `open_pos_cost` (total USD notional) rather than
+    // a per-unit `average_price`. Divide to recover the entry price. Fall
+    // back to `average_price` in case a future API version adds it directly.
+    let entry_price = item
+        .get("average_price")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|p| *p > 0.0)
+        .or_else(|| {
+            item.get("open_pos_cost")
+                .or_else(|| item.get("cost"))
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.parse::<f64>().ok())
+                .and_then(|cost| {
+                    if raw_qty.abs() > 0.0 {
+                        Some(cost.abs() / raw_qty.abs())
+                    } else {
+                        None
+                    }
+                })
+        })
+        .unwrap_or(0.0);
+
+    let mark = state.tickers.get(&instrument).map(|t| t.ask).unwrap_or(0.0);
+
+    Some(Position {
+        instrument,
+        side,
+        quantity: raw_qty.abs(),
+        entry_price,
+        mark_price: mark,
+        pnl: item
+            .get("session_pnl")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0),
+        liquidation_price: item
+            .get("liquidation_price")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0),
+    })
 }
 
 impl Tab for PositionsTab {
@@ -128,82 +223,13 @@ impl Tab for PositionsTab {
         match event {
             DataEvent::RestResponse { method, data } if method == "private/get-positions" => {
                 if let Some(arr) = data.get("data").and_then(|d| d.as_array()) {
-                    self.positions = arr
-                        .iter()
-                        .map(|item| {
-                            let instrument = item
-                                .get("instrument_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let mark = state.tickers.get(&instrument).map(|t| t.ask).unwrap_or(0.0);
-
-                            // The exchange encodes direction in the sign of `quantity`
-                            // (positive = long, negative = short) and does NOT send an
-                            // explicit `side` field on positions. Fall back to the
-                            // quantity-sign convention when `side` is absent.
-                            let raw_qty: f64 = item
-                                .get("quantity")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0.0);
-                            let side = item
-                                .get("side")
-                                .and_then(|v| v.as_str())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| {
-                                    if raw_qty >= 0.0 {
-                                        "LONG".into()
-                                    } else {
-                                        "SHORT".into()
-                                    }
-                                });
-
-                            // The exchange returns `open_pos_cost` (total USD notional)
-                            // rather than a per-unit `average_price`. Divide to recover
-                            // the entry price. Fall back to `average_price` in case a
-                            // future API version adds it directly.
-                            let entry_price = item
-                                .get("average_price")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse::<f64>().ok())
-                                .filter(|p| *p > 0.0)
-                                .or_else(|| {
-                                    item.get("open_pos_cost")
-                                        .or_else(|| item.get("cost"))
-                                        .and_then(|v| v.as_str())
-                                        .and_then(|s| s.parse::<f64>().ok())
-                                        .and_then(|cost| {
-                                            if raw_qty.abs() > 0.0 {
-                                                Some(cost.abs() / raw_qty.abs())
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                })
-                                .unwrap_or(0.0);
-
-                            Position {
-                                instrument,
-                                side,
-                                quantity: raw_qty.abs(),
-                                entry_price,
-                                mark_price: mark,
-                                pnl: item
-                                    .get("session_pnl")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| s.parse().ok())
-                                    .unwrap_or(0.0),
-                                liquidation_price: item
-                                    .get("liquidation_price")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|s| s.parse().ok())
-                                    .unwrap_or(0.0),
-                            }
-                        })
-                        .collect();
-                    self.loaded = true;
+                    self.rebuild_positions(arr, state);
                 }
+            }
+            DataEvent::PositionsSnapshot(records) => {
+                // `user.positions` sends the full open-position set on each
+                // delta, so replace wholesale — matches AppState::update_positions.
+                self.rebuild_positions(records, state);
             }
             _ => {
                 if state.paper_mode {
@@ -384,7 +410,9 @@ impl Tab for PositionsTab {
     }
 
     fn on_activate(&mut self) {
-        self.loaded = false;
+        // Intentionally no-op: size/entry/liq stay current via user.positions
+        // snapshots, and mark/P&L recompute every tick from state.tickers.
+        // The initial REST prime runs on first activation via the fallthrough.
     }
 
     fn selected_instrument(&self) -> Option<&str> {

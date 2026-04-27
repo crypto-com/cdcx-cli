@@ -664,6 +664,29 @@ impl App {
             }
         }
 
+        // User-channel events (positions, orders, balance) must reach their
+        // owning tabs even when a different tab is active — beta testers hit
+        // "refresh required" because we previously only delivered to the
+        // active tab. Route by TabKind so the tables stay live cross-tab.
+        let broadcast_kinds: &[TabKind] = match event {
+            DataEvent::OrdersUpdate(_) => &[TabKind::Orders],
+            DataEvent::PositionsSnapshot(_) => &[TabKind::Positions],
+            DataEvent::BalanceSnapshot(_) => &[TabKind::Portfolio],
+            _ => &[],
+        };
+        if !broadcast_kinds.is_empty() {
+            for kind in broadcast_kinds {
+                let idx = TabKind::ALL.iter().position(|k| k == kind);
+                if let Some(i) = idx {
+                    if i != self.active_tab {
+                        if let Some(tab) = self.tabs.get_mut(i) {
+                            tab.on_data(&event, &mut self.state);
+                        }
+                    }
+                }
+            }
+        }
+
         // Forward to active tab
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             tab.on_data(&event, &mut self.state);
