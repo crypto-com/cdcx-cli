@@ -100,13 +100,22 @@ impl FromStr for Environment {
 mod tests {
     use super::*;
 
+    /// Covers both the unset-default URLs and the CDCX_* env-var overrides in
+    /// one sequential test. These used to live in two `#[test]` fns, but Rust
+    /// runs tests in parallel threads by default and `std::env::set_var` /
+    /// `remove_var` are process-global — so the override test's mid-flight
+    /// `set_var("CDCX_WS_USER_URL", ...)` would race the default test's read,
+    /// producing sporadic Windows CI failures (slower env syscalls amplify the
+    /// race). Collapsing into one test pins the set/read/remove cycles to a
+    /// single thread's timeline and removes the race without new dependencies.
     #[test]
-    fn test_environment_urls() {
-        // Clear any overrides that might be set
+    fn test_environment_urls_and_overrides() {
+        // Clear any overrides the environment might inject before we start.
         std::env::remove_var("CDCX_REST_URL");
         std::env::remove_var("CDCX_WS_MARKET_URL");
         std::env::remove_var("CDCX_WS_USER_URL");
 
+        // --- Defaults ---
         assert_eq!(
             Environment::Production.rest_url(),
             "https://api.crypto.com/exchange/v1"
@@ -131,10 +140,8 @@ mod tests {
             Environment::Uat.ws_user_url(),
             "wss://uat-stream.3ona.co/exchange/v1/user"
         );
-    }
 
-    #[test]
-    fn test_env_var_url_overrides() {
+        // --- Overrides (each sets, asserts, then restores before the next) ---
         std::env::set_var("CDCX_REST_URL", "https://custom-api.example.com/v1");
         assert_eq!(
             Environment::Production.rest_url(),
