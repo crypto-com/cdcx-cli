@@ -21,9 +21,12 @@ position = 1
 name = "quantity"
 position = 2
 
+# `type` is required per the OpenAPI spec and has no server-side default.
+# We intentionally do NOT set `default = "MARKET"` here — silently defaulting a
+# trading CLI to the more destructive enum value turned limit orders (with
+# --price) into market fills when users forgot to pass --type.
 [[endpoints.params]]
 name = "type"
-default = "MARKET"
 
 [[endpoints]]
 method = "private/get-order-detail"
