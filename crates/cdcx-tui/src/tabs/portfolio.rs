@@ -17,6 +17,68 @@ struct Holding {
     value: f64, // market value in quote currency
 }
 
+fn is_stablecoin(symbol: &str) -> bool {
+    matches!(symbol, "USDT" | "USD" | "USDC" | "DAI" | "TUSD" | "BUSD")
+}
+
+/// Parse a single balance record into the static view fields. `value` is
+/// left at zero and filled by `recompute_holding_values` so the ticker-
+/// driven value recompute has a single writer (same pattern as Positions).
+fn parse_balance_record(item: &serde_json::Value) -> Option<Holding> {
+    let currency = item
+        .get("instrument_name")
+        .or_else(|| item.get("currency"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("?")
+        .to_string();
+
+    let amount = item
+        .get("total_cash_balance")
+        .or_else(|| item.get("quantity"))
+        .or_else(|| item.get("balance"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    if amount <= 0.0 {
+        return None;
+    }
+
+    let available = item
+        .get("total_available_balance")
+        .or_else(|| item.get("available"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+
+    Some(Holding {
+        name: currency,
+        amount,
+        available,
+        value: 0.0,
+    })
+}
+
+/// Re-price every holding from `state.tickers`. Stablecoins are valued 1:1;
+/// non-stable holdings use `{SYM}_USDT` last ask. Called from REST, WS, and
+/// tick paths so holdings stay live between `user.balance` deltas (which
+/// only fire on trades/deposits, not on market price moves).
+fn recompute_holding_values(holdings: &mut [Holding], state: &AppState) -> (f64, f64) {
+    let mut cash_balance = 0.0;
+    let mut position_value = 0.0;
+    for h in holdings {
+        if is_stablecoin(&h.name) {
+            h.value = h.amount;
+            cash_balance += h.value;
+            continue;
+        }
+        let pair = format!("{}_USDT", h.name);
+        let last = state.tickers.get(&pair).map(|t| t.ask).unwrap_or(0.0);
+        h.value = h.amount * last;
+        position_value += h.value;
+    }
+    (cash_balance, position_value)
+}
+
 #[derive(Debug, Clone, Default)]
 struct PortfolioView {
     holdings: Vec<Holding>,
@@ -57,6 +119,49 @@ impl PortfolioTab {
                 is_private: true,
             });
         }
+    }
+
+    /// Shared between REST response and `user.balance` WS snapshot. Rebuilds
+    /// holdings from records, then runs the ticker-driven value recompute.
+    fn rebuild_from_records(&mut self, records: &[serde_json::Value], state: &mut AppState) {
+        let mut holdings: Vec<Holding> = records.iter().filter_map(parse_balance_record).collect();
+        let (cash_balance, position_value) = recompute_holding_values(&mut holdings, state);
+        holdings.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap());
+
+        let total_value = cash_balance + position_value;
+        if state.session_start_value.is_none() && total_value > 0.0 {
+            state.session_start_value = Some(total_value);
+        }
+        state.current_portfolio_value = total_value;
+
+        self.view = PortfolioView {
+            holdings,
+            cash_balance,
+            position_value,
+            total_value,
+            initial_value: state.session_start_value.unwrap_or(total_value),
+            unrealized_pnl: 0.0,
+            realized_pnl: 0.0,
+        };
+        self.loaded = true;
+    }
+
+    /// Re-run the ticker-based value pass on the existing holdings without
+    /// touching the payload-sourced amount/available fields. Called each
+    /// tick so values follow the market between `user.balance` deltas.
+    fn refresh_live_values(&mut self, state: &mut AppState) {
+        if self.view.holdings.is_empty() {
+            return;
+        }
+        let (cash_balance, position_value) =
+            recompute_holding_values(&mut self.view.holdings, state);
+        self.view.cash_balance = cash_balance;
+        self.view.position_value = position_value;
+        self.view.total_value = cash_balance + position_value;
+        state.current_portfolio_value = self.view.total_value;
+        self.view
+            .holdings
+            .sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap());
     }
 
     fn build_paper_view(state: &AppState) -> PortfolioView {
@@ -166,98 +271,20 @@ impl Tab for PortfolioTab {
         match event {
             DataEvent::RestResponse { method, data } if method == "private/user-balance" => {
                 if let Some(arr) = data.get("data").and_then(|d| d.as_array()) {
-                    let mut holdings = Vec::new();
-                    let mut cash_balance = 0.0;
-                    let mut position_value = 0.0;
-
-                    for item in arr {
-                        let currency = item
-                            .get("instrument_name")
-                            .or_else(|| item.get("currency"))
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("?")
-                            .to_string();
-
-                        let total = item
-                            .get("total_cash_balance")
-                            .or_else(|| item.get("quantity"))
-                            .or_else(|| item.get("balance"))
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or(0.0);
-
-                        let available = item
-                            .get("total_available_balance")
-                            .or_else(|| item.get("available"))
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse().ok())
-                            .unwrap_or(0.0);
-
-                        if total <= 0.0 {
-                            continue;
-                        }
-
-                        let is_stablecoin = matches!(
-                            currency.as_str(),
-                            "USDT" | "USD" | "USDC" | "DAI" | "TUSD" | "BUSD"
-                        );
-
-                        let value = item
-                            .get("market_value")
-                            .and_then(|v| v.as_str())
-                            .and_then(|s| s.parse::<f64>().ok())
-                            .unwrap_or_else(|| {
-                                if is_stablecoin {
-                                    total
-                                } else {
-                                    let pair = format!("{}_USDT", currency);
-                                    state
-                                        .tickers
-                                        .get(&pair)
-                                        .map(|t| total * t.ask)
-                                        .unwrap_or(0.0)
-                                }
-                            });
-
-                        if is_stablecoin {
-                            cash_balance += value;
-                        } else {
-                            position_value += value;
-                        }
-                        holdings.push(Holding {
-                            name: currency,
-                            amount: total,
-                            available,
-                            value,
-                        });
-                    }
-
-                    holdings.sort_by(|a, b| b.value.partial_cmp(&a.value).unwrap());
-
-                    let total_value = cash_balance + position_value;
-
-                    // Track session start value for P&L
-                    if state.session_start_value.is_none() && total_value > 0.0 {
-                        state.session_start_value = Some(total_value);
-                    }
-                    state.current_portfolio_value = total_value;
-
-                    self.view = PortfolioView {
-                        holdings,
-                        cash_balance,
-                        position_value,
-                        total_value,
-                        initial_value: state.session_start_value.unwrap_or(total_value),
-                        unrealized_pnl: 0.0,
-                        realized_pnl: 0.0,
-                    };
-                    self.loaded = true;
+                    self.rebuild_from_records(arr, state);
                 }
+            }
+            DataEvent::BalanceSnapshot(records) => {
+                self.rebuild_from_records(records, state);
             }
             _ => {
                 if !self.loaded {
                     self.request_data(state);
+                    return;
                 }
+                // Keep non-stable holding values tracking the market between
+                // `user.balance` deltas (which only fire on trades/deposits).
+                self.refresh_live_values(state);
             }
         }
     }
@@ -480,6 +507,8 @@ impl Tab for PortfolioTab {
     }
 
     fn on_activate(&mut self) {
-        self.loaded = false;
+        // Intentionally no-op: state stays fresh via user.balance WS +
+        // per-tick ticker-driven value recompute, so wiping the cache on
+        // tab-switch only produces a blank frame before REST refills.
     }
 }
