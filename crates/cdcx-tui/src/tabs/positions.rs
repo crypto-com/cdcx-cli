@@ -94,6 +94,10 @@ impl PositionsTab {
             .iter()
             .filter_map(|item| parse_position_record(item, state))
             .collect();
+        // Immediately apply the same ticker-driven recompute the tick path uses,
+        // otherwise the WS payload's zero-initialised mark/pnl flashes on screen
+        // for one frame before the next tick fills it in.
+        apply_live_mark_and_pnl(&mut self.positions, state);
         if self.selected >= self.positions.len() {
             self.selected = self.positions.len().saturating_sub(1);
         }
@@ -101,10 +105,33 @@ impl PositionsTab {
     }
 }
 
+/// Overwrite `mark_price` and `pnl` on every position from the streaming
+/// ticker cache. Single source of truth for live values — called from both
+/// `rebuild_positions` (WS snapshot / REST response) and the tick fallthrough
+/// to avoid flicker between conflicting writers.
+fn apply_live_mark_and_pnl(positions: &mut [Position], state: &AppState) {
+    for pos in positions {
+        let Some(ticker) = state.tickers.get(&pos.instrument) else {
+            continue;
+        };
+        pos.mark_price = ticker.ask;
+        if pos.entry_price > 0.0 {
+            let direction = if pos.side == "BUY" || pos.side == "LONG" {
+                1.0
+            } else {
+                -1.0
+            };
+            pos.pnl = (pos.mark_price - pos.entry_price) * pos.quantity * direction;
+        }
+    }
+}
+
 /// Parse a single position record from the exchange into the row struct.
-/// Returns `None` for zero-quantity rows — the exchange echoes closed
-/// positions and we don't want them cluttering the table.
-fn parse_position_record(item: &serde_json::Value, state: &AppState) -> Option<Position> {
+/// Only static fields (instrument / side / qty / entry / liq) are read here;
+/// `mark_price` and `pnl` are owned exclusively by `apply_live_mark_and_pnl`
+/// so we have a single writer and no per-frame flicker. Returns `None` for
+/// zero-quantity rows — the exchange echoes closed positions.
+fn parse_position_record(item: &serde_json::Value, _state: &AppState) -> Option<Position> {
     let instrument = item
         .get("instrument_name")
         .and_then(|v| v.as_str())
@@ -161,19 +188,13 @@ fn parse_position_record(item: &serde_json::Value, state: &AppState) -> Option<P
         })
         .unwrap_or(0.0);
 
-    let mark = state.tickers.get(&instrument).map(|t| t.ask).unwrap_or(0.0);
-
     Some(Position {
         instrument,
         side,
         quantity: raw_qty.abs(),
         entry_price,
-        mark_price: mark,
-        pnl: item
-            .get("session_pnl")
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0.0),
+        mark_price: 0.0,
+        pnl: 0.0,
         liquidation_price: item
             .get("liquidation_price")
             .and_then(|v| v.as_str())
@@ -239,23 +260,8 @@ impl Tab for PositionsTab {
                 if !self.loaded {
                     self.request_data(state);
                 }
-                // Live update mark prices and P&L from streaming tickers
                 if self.loaded {
-                    for pos in &mut self.positions {
-                        if let Some(ticker) = state.tickers.get(&pos.instrument) {
-                            pos.mark_price = ticker.ask;
-                            // Calculate unrealized P&L: (mark - entry) * qty for LONG, inverse for SHORT
-                            let direction = if pos.side == "BUY" || pos.side == "LONG" {
-                                1.0
-                            } else {
-                                -1.0
-                            };
-                            if pos.entry_price > 0.0 {
-                                pos.pnl =
-                                    (pos.mark_price - pos.entry_price) * pos.quantity * direction;
-                            }
-                        }
-                    }
+                    apply_live_mark_and_pnl(&mut self.positions, state);
                 }
             }
         }
