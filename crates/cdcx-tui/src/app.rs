@@ -47,6 +47,10 @@ pub struct App {
     /// split view. Shared across tabs so selection state persists when
     /// switching between Market / Watchlist / Positions.
     pub research: crate::widgets::research_pane::ResearchPane,
+    /// Opt-in flag — when false, split view reverts to the chart-only
+    /// right pane and all research-pane keybindings fall through to tabs.
+    /// See TuiConfig::resolve_beta_research_pane for the precedence rules.
+    pub beta_research_pane: bool,
 }
 
 impl App {
@@ -74,6 +78,7 @@ impl App {
             settings: None,
             last_click: None,
             research: crate::widgets::research_pane::ResearchPane::new(),
+            beta_research_pane: false,
         }
     }
 
@@ -197,7 +202,9 @@ impl App {
                                 params: serde_json::json!({"instrument_name": inst, "timeframe": "1h"}),
                                 is_private: false,
                             });
-                            self.research.set_instrument(inst, &self.state);
+                            if self.beta_research_pane {
+                                self.research.set_instrument(inst, &self.state);
+                            }
                         }
                     }
                 }
@@ -222,16 +229,18 @@ impl App {
             KeyCode::Char('\\') => {
                 self.split_view = !self.split_view;
                 if self.split_view {
-                    // Seed both the chart data and the research pane off the
-                    // currently-selected instrument so the right pane isn't
-                    // blank on first open.
                     if let Some(inst) = self.get_selected_instrument() {
                         let _ = self.state.rest_tx.send(crate::state::RestRequest {
                             method: "public/get-candlestick".into(),
                             params: serde_json::json!({"instrument_name": inst, "timeframe": "1h"}),
                             is_private: false,
                         });
-                        self.research.set_instrument(inst, &self.state);
+                        // Only seed the research pane when the beta flag is
+                        // on — it drives network fetches to an unofficial
+                        // API we don't want to hit for users who didn't opt in.
+                        if self.beta_research_pane {
+                            self.research.set_instrument(inst, &self.state);
+                        }
                     }
                 }
                 return;
@@ -248,16 +257,86 @@ impl App {
             // inside the Market tab also binds `[` / `]` for timeframe
             // cycling, so we check `split_view` first and let the tab claim
             // them otherwise.
-            KeyCode::Char(']') if self.split_view => {
+            KeyCode::Char(']') if self.split_view && self.beta_research_pane => {
                 self.research.cycle_section_forward();
                 return;
             }
-            KeyCode::Char('[') if self.split_view => {
+            KeyCode::Char('[') if self.split_view && self.beta_research_pane => {
                 self.research.cycle_section_backward();
                 return;
             }
-            KeyCode::Char('N') if self.split_view => {
+            KeyCode::Char('N') if self.split_view && self.beta_research_pane => {
                 self.research.cycle_news_subtab();
+                return;
+            }
+            // News navigation inside the research pane. Only bite when the
+            // News section is active — otherwise J/K fall through to tabs
+            // (market uses `j/k` lowercase for row nav; these are SHIFT).
+            KeyCode::Char('J')
+                if self.split_view
+                    && self.beta_research_pane
+                    && self.research.active_section()
+                        == crate::widgets::research_pane::Section::News =>
+            {
+                self.research.select_news_next();
+                return;
+            }
+            KeyCode::Char('K')
+                if self.split_view
+                    && self.beta_research_pane
+                    && self.research.active_section()
+                        == crate::widgets::research_pane::Section::News =>
+            {
+                self.research.select_news_prev();
+                return;
+            }
+            // Enter: only consume when the pane actually acts on it (empty
+            // list returns true + no-op, non-empty toggles expansion).
+            KeyCode::Enter
+                if self.split_view
+                    && self.beta_research_pane
+                    && self.research.active_section()
+                        == crate::widgets::research_pane::Section::News
+                    && self.research.toggle_news_expand() =>
+            {
+                return;
+            }
+            // Esc: collapse if expanded; if not, fall through so the active
+            // tab's Esc handler runs (e.g. detail view back-out).
+            KeyCode::Esc
+                if self.split_view
+                    && self.beta_research_pane
+                    && self.research.active_section()
+                        == crate::widgets::research_pane::Section::News
+                    && self.research.collapse_news() =>
+            {
+                return;
+            }
+            KeyCode::Char('b')
+                if self.split_view
+                    && self.beta_research_pane
+                    && self.research.active_section()
+                        == crate::widgets::research_pane::Section::News =>
+            {
+                match self.research.selected_news_url() {
+                    Some(url) => {
+                        if open_url(&url) {
+                            self.state.toast(
+                                format!("Opened: {}", truncate_for_toast(&url)),
+                                crate::state::ToastStyle::Success,
+                            );
+                        } else {
+                            self.state
+                                .toast("Couldn't launch browser", crate::state::ToastStyle::Error);
+                        }
+                    }
+                    None => {
+                        self.state.toast(
+                            "No link for this item (try N to switch sub-tab)",
+                            crate::state::ToastStyle::Info,
+                        );
+                    }
+                }
                 return;
             }
             _ => {}
@@ -892,15 +971,34 @@ impl App {
                 tab.draw(frame, left, &self.state);
             }
 
-            // Right panel: Bloomberg-style research pane (Overview / Chart /
-            // News sections). Candles are sourced from the Market tab — one
-            // authoritative store for OHLC across the app.
-            let candles: &[crate::widgets::candlestick::Candle] = self
-                .research
-                .selected_instrument()
-                .and_then(|inst| self.tabs.first().map(|tab| tab.get_candles(inst)))
-                .unwrap_or(&[]);
-            self.research.draw(frame, right, candles, &self.state);
+            // Right panel behaviour is beta-flag gated. When on, Bloomberg-style
+            // research pane with Overview/Chart/News. When off, the original
+            // chart-only split that shipped before this beta — unchanged from
+            // prior cdcx versions so users who don't opt in see identical UX.
+            if self.beta_research_pane {
+                let candles: &[crate::widgets::candlestick::Candle] = self
+                    .research
+                    .selected_instrument()
+                    .and_then(|inst| self.tabs.first().map(|tab| tab.get_candles(inst)))
+                    .unwrap_or(&[]);
+                self.research.draw(frame, right, candles, &self.state);
+            } else if let Some(inst) = self.get_selected_instrument() {
+                let candles = self
+                    .tabs
+                    .first()
+                    .map(|tab| tab.get_candles(&inst))
+                    .unwrap_or(&[]);
+                let filled = crate::widgets::candlestick::fill_candle_gaps(candles, 3_600_000);
+                crate::widgets::candlestick::draw_candlestick(
+                    frame,
+                    right,
+                    &inst,
+                    &filled,
+                    "1h",
+                    &self.state.theme.colors,
+                    "\\:close split",
+                );
+            }
         } else if let Some(tab) = self.tabs.get(self.active_tab) {
             tab.draw(frame, content_area, &self.state);
         }
@@ -933,8 +1031,8 @@ impl App {
 }
 
 fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
-    let width = 58u16;
-    let height = 40u16;
+    let width = 62u16;
+    let height = 46u16;
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     let modal = Rect::new(x, y, width.min(area.width), height.min(area.height));
@@ -999,11 +1097,20 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
         ("r", "Refresh data"),
         ("n / p", "Next / previous page (history)"),
         ("", ""),
-        ("Research Pane (split view)", ""),
+        ("Research Pane — BETA (opt-in)", ""),
         ("\\", "Toggle split view"),
         ("[ / ]", "Cycle section (Overview/Chart/News)"),
-        ("N", "Cycle news sub-tab (News section)"),
+        ("N", "Cycle news sub-tab"),
+        ("J / K", "News — select next / previous"),
+        ("Enter", "News — expand / collapse selected"),
+        ("b", "News — open selected in browser"),
         ("r", "Refresh research panels"),
+        ("", ""),
+        (
+            "Enable: --beta-research-pane, CDCX_BETA_RESEARCH_PANE=1,",
+            "",
+        ),
+        ("        or beta_research_pane=true in tui.toml", ""),
         ("", ""),
         ("Press any key to close", ""),
     ];
@@ -1051,6 +1158,45 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let table = Table::new(rows, [Constraint::Length(20), Constraint::Fill(1)]);
     frame.render_widget(table, inner);
+}
+
+/// Launch the user's default browser at `url`. Mirrors the platform probing
+/// strategy of `copy_to_clipboard` — spawn commands in order, return true as
+/// soon as one succeeds. Never blocks the terminal; the spawned process is
+/// detached.
+fn open_url(url: &str) -> bool {
+    use std::process::{Command, Stdio};
+
+    let candidates: &[(&str, Vec<&str>)] = &[
+        ("open", vec![]),                     // macOS
+        ("xdg-open", vec![]),                 // Linux freedesktop
+        ("cmd.exe", vec!["/C", "start", ""]), // Windows (unlikely target but cheap)
+    ];
+
+    for (cmd, args) in candidates {
+        let mut command = Command::new(cmd);
+        command.args(args);
+        command.arg(url);
+        if command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .is_ok()
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn truncate_for_toast(url: &str) -> String {
+    if url.chars().count() <= 50 {
+        return url.to_string();
+    }
+    let mut out: String = url.chars().take(47).collect();
+    out.push('\u{2026}');
+    out
 }
 
 fn copy_to_clipboard(text: &str) -> bool {

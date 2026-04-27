@@ -78,7 +78,13 @@ pub struct ResearchPane {
     trending: Option<Vec<TrendingToken>>,
     section: Section,
     news_panel: NewsPanel,
-    news_scroll: usize,
+    /// Index of the currently-highlighted news item within the active sub-tab.
+    /// Reset on sub-tab switch or snapshot change; clamped against the list
+    /// length at render time (the list can shrink between refreshes).
+    news_selected: usize,
+    /// When expanded, the selected item's body / description / URL renders
+    /// inline below the row rather than just its title.
+    news_expanded: bool,
     directory_requested: bool,
     trending_requested: bool,
 }
@@ -91,7 +97,8 @@ impl ResearchPane {
             trending: None,
             section: Section::Overview,
             news_panel: NewsPanel::Highlights,
-            news_scroll: 0,
+            news_selected: 0,
+            news_expanded: false,
             directory_requested: false,
             trending_requested: false,
         }
@@ -103,21 +110,12 @@ impl ResearchPane {
 
     pub fn cycle_section_forward(&mut self) {
         self.section = self.section.next();
-        self.news_scroll = 0;
+        self.reset_news_view();
     }
 
     pub fn cycle_section_backward(&mut self) {
         self.section = self.section.prev();
-        self.news_scroll = 0;
-    }
-
-    /// Scroll the news list (only meaningful when `Section::News` is active).
-    pub fn scroll_news(&mut self, delta: isize) {
-        if delta > 0 {
-            self.news_scroll = self.news_scroll.saturating_add(delta as usize);
-        } else {
-            self.news_scroll = self.news_scroll.saturating_sub((-delta) as usize);
-        }
+        self.reset_news_view();
     }
 
     /// Cycle the news sub-tab. No-op when News isn't the active section.
@@ -130,7 +128,112 @@ impl ResearchPane {
             NewsPanel::Reddit => NewsPanel::Video,
             NewsPanel::Video => NewsPanel::Highlights,
         };
-        self.news_scroll = 0;
+        self.reset_news_view();
+    }
+
+    fn reset_news_view(&mut self) {
+        self.news_selected = 0;
+        self.news_expanded = false;
+    }
+
+    /// Move the news selection. Only active when Section::News is visible;
+    /// otherwise the keystroke should fall through to the tab.
+    pub fn select_news_next(&mut self) -> bool {
+        if self.section != Section::News {
+            return false;
+        }
+        let len = self.current_news_len();
+        if len == 0 {
+            return true;
+        }
+        self.news_selected = (self.news_selected + 1).min(len.saturating_sub(1));
+        self.news_expanded = false;
+        true
+    }
+
+    pub fn select_news_prev(&mut self) -> bool {
+        if self.section != Section::News {
+            return false;
+        }
+        self.news_selected = self.news_selected.saturating_sub(1);
+        self.news_expanded = false;
+        true
+    }
+
+    /// Toggle inline expansion of the selected news item. No-op outside
+    /// News section. Returns true if the key was consumed.
+    pub fn toggle_news_expand(&mut self) -> bool {
+        if self.section != Section::News {
+            return false;
+        }
+        if self.current_news_len() == 0 {
+            return true;
+        }
+        self.news_expanded = !self.news_expanded;
+        true
+    }
+
+    /// Collapse (only if currently expanded). Returns true if the key was
+    /// consumed — so callers can distinguish "pane swallowed Esc" from
+    /// "nothing to do, let the global handler run".
+    pub fn collapse_news(&mut self) -> bool {
+        if self.section != Section::News || !self.news_expanded {
+            return false;
+        }
+        self.news_expanded = false;
+        true
+    }
+
+    /// Returns the URL to open for the currently-selected news item, if any.
+    /// Prefers external `link` when the post is a link-share; falls back to
+    /// the reddit comment thread URL. For videos, builds a YouTube watch URL.
+    pub fn selected_news_url(&self) -> Option<String> {
+        if self.section != Section::News {
+            return None;
+        }
+        match self.news_panel {
+            NewsPanel::Reddit => {
+                let post = self.snapshot.reddit.as_ref()?.get(self.news_selected)?;
+                // Prefer the external link if it's a link-type post.
+                post.link.clone().or_else(|| {
+                    post.url
+                        .as_ref()
+                        .map(|u| format!("https://reddit.com{}", u))
+                })
+            }
+            NewsPanel::Video => {
+                let v = self.snapshot.videos.as_ref()?.get(self.news_selected)?;
+                Some(format!("https://youtube.com/watch?v={}", v.id))
+            }
+            NewsPanel::Highlights => {
+                // Highlights is a merged view — we'd need to know which list
+                // the selected item came from, which is fragile. Punt: no URL
+                // opening from highlights. Users press N to jump into Reddit
+                // or Video first.
+                None
+            }
+        }
+    }
+
+    fn current_news_len(&self) -> usize {
+        match self.news_panel {
+            NewsPanel::Reddit => self.snapshot.reddit.as_deref().map_or(0, |v| v.len()),
+            NewsPanel::Video => self.snapshot.videos.as_deref().map_or(0, |v| v.len()),
+            // Highlights pulls top-5 reddit + top-3 videos.
+            NewsPanel::Highlights => {
+                let r = self
+                    .snapshot
+                    .reddit
+                    .as_deref()
+                    .map_or(0, |v| v.len().min(5));
+                let v = self
+                    .snapshot
+                    .videos
+                    .as_deref()
+                    .map_or(0, |v| v.len().min(3));
+                r + v
+            }
+        }
     }
 
     pub fn selected_instrument(&self) -> Option<&str> {
@@ -152,7 +255,7 @@ impl ResearchPane {
         }
         self.instrument = Some(instrument.clone());
         self.snapshot = Snapshot::default();
-        self.news_scroll = 0;
+        self.reset_news_view();
 
         // First-time side effects: load trending + directory once per session.
         if !self.trending_requested {
@@ -402,19 +505,25 @@ impl ResearchPane {
             Section::News => self.draw_news(frame, body_area, &state.theme.colors),
         }
 
-        // ── Footer: shortcuts ──
+        // ── Footer: shortcuts, plus a beta badge so users remember this
+        //    surface calls a consumer-web API that may change or break.
         let shortcuts = match self.section {
-            Section::Overview => "[/]:section  \u{2190}\u{2192}:trending  r:refresh",
-            Section::Chart => "[/]:section  \u{2190}\u{2192}:trending  r:refresh",
-            Section::News => "[/]:section  N:cycle news tab  j/k:scroll  r:refresh",
+            Section::Overview => "[/]:section  r:refresh",
+            Section::Chart => "[/]:section  r:refresh",
+            Section::News => "[/]:section  N:subtab  J/K:nav  Enter:expand  b:open  r:refresh",
         };
-        frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                shortcuts,
-                Style::default().fg(state.theme.colors.muted),
-            ))),
-            footer_area,
-        );
+        let footer = Line::from(vec![
+            Span::styled(
+                " BETA ",
+                Style::default()
+                    .fg(state.theme.colors.selected_fg)
+                    .bg(state.theme.colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(shortcuts, Style::default().fg(state.theme.colors.muted)),
+        ]);
+        frame.render_widget(Paragraph::new(footer), footer_area);
     }
 
     fn draw_overview(&self, frame: &mut Frame, area: Rect, colors: &ThemeColors) {
@@ -464,13 +573,22 @@ impl ResearchPane {
     }
 
     fn draw_news(&self, frame: &mut Frame, area: Rect, colors: &ThemeColors) {
+        // Clamp selection against current list length at render time so a
+        // new snapshot with fewer items can't leave the cursor past the end.
+        let len = self.current_news_len();
+        let selected = if len == 0 {
+            0
+        } else {
+            self.news_selected.min(len - 1)
+        };
         discover::render_news(
             frame,
             area,
             self.news_panel,
             self.snapshot.reddit.as_deref(),
             self.snapshot.videos.as_deref(),
-            self.news_scroll,
+            selected,
+            self.news_expanded,
             colors,
         );
     }
@@ -713,5 +831,117 @@ mod tests {
             pane.news_panel, before,
             "cycling news sub-tab must not change state unless section is News"
         );
+    }
+
+    fn post(id: &str, upvotes: i64, title: &str) -> RedditPost {
+        RedditPost {
+            id: id.into(),
+            username: Some("alice".into()),
+            upvotes,
+            create_time: Some("2026-04-24T09:00:00".into()),
+            title: title.into(),
+            url: Some(format!("/r/Bitcoin/comments/{}/", id)),
+            text: Some("body text".into()),
+            link: None,
+        }
+    }
+
+    #[test]
+    fn news_selection_falls_through_when_section_not_news() {
+        let mut pane = ResearchPane::new();
+        // Default section is Overview.
+        assert!(
+            !pane.select_news_next(),
+            "must return false so app.rs falls through to the tab"
+        );
+        assert!(!pane.select_news_prev());
+    }
+
+    #[test]
+    fn news_selection_clamps_at_end_of_list() {
+        let mut pane = ResearchPane::new();
+        pane.section = Section::News;
+        pane.news_panel = NewsPanel::Reddit;
+        pane.snapshot.reddit = Some(vec![post("a", 10, "A"), post("b", 5, "B")]);
+        assert!(pane.select_news_next());
+        assert_eq!(pane.news_selected, 1);
+        // Already at end — further next is a no-op, not a wraparound.
+        assert!(pane.select_news_next());
+        assert_eq!(pane.news_selected, 1);
+    }
+
+    #[test]
+    fn news_moving_selection_collapses_expansion() {
+        let mut pane = ResearchPane::new();
+        pane.section = Section::News;
+        pane.news_panel = NewsPanel::Reddit;
+        pane.snapshot.reddit = Some(vec![post("a", 10, "A"), post("b", 5, "B")]);
+        pane.news_expanded = true;
+        pane.select_news_next();
+        assert!(
+            !pane.news_expanded,
+            "moving selection must collapse expansion so the reader isn't stuck on stale body"
+        );
+    }
+
+    #[test]
+    fn collapse_returns_false_when_nothing_expanded() {
+        let mut pane = ResearchPane::new();
+        pane.section = Section::News;
+        assert!(
+            !pane.collapse_news(),
+            "Esc must fall through when nothing to collapse — tab may want to handle it"
+        );
+    }
+
+    #[test]
+    fn reddit_self_post_resolves_to_thread_url() {
+        let mut pane = ResearchPane::new();
+        pane.section = Section::News;
+        pane.news_panel = NewsPanel::Reddit;
+        pane.snapshot.reddit = Some(vec![post("abc123", 50, "hello")]);
+        let url = pane.selected_news_url().expect("url");
+        assert_eq!(url, "https://reddit.com/r/Bitcoin/comments/abc123/");
+    }
+
+    #[test]
+    fn reddit_link_post_prefers_external_link() {
+        let mut pane = ResearchPane::new();
+        pane.section = Section::News;
+        pane.news_panel = NewsPanel::Reddit;
+        let mut p = post("abc", 10, "t");
+        p.link = Some("https://example.com/article".into());
+        pane.snapshot.reddit = Some(vec![p]);
+        let url = pane.selected_news_url().expect("url");
+        assert_eq!(
+            url, "https://example.com/article",
+            "link-share posts should open the external article, not the reddit thread"
+        );
+    }
+
+    #[test]
+    fn video_resolves_to_youtube_watch_url() {
+        let mut pane = ResearchPane::new();
+        pane.section = Section::News;
+        pane.news_panel = NewsPanel::Video;
+        pane.snapshot.videos = Some(vec![VideoNews {
+            id: "xYz123".into(),
+            title: "t".into(),
+            create_time: None,
+            description: None,
+        }]);
+        let url = pane.selected_news_url().expect("url");
+        assert_eq!(url, "https://youtube.com/watch?v=xYz123");
+    }
+
+    #[test]
+    fn highlights_refuses_url_resolution() {
+        // Merged list makes URL resolution ambiguous; the pane returns None
+        // and app.rs surfaces a toast directing the user to the sub-tab.
+        let mut pane = ResearchPane::new();
+        pane.section = Section::News;
+        pane.news_panel = NewsPanel::Highlights;
+        pane.snapshot.reddit = Some(vec![post("a", 10, "t")]);
+        assert!(pane.selected_news_url().is_none());
     }
 }

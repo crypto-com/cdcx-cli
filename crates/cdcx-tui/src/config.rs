@@ -11,6 +11,11 @@ pub struct TuiConfig {
     pub watchlist: Vec<String>,
     #[serde(default)]
     pub themes: HashMap<String, CustomThemeConfig>,
+    /// Opt into the price-api research pane (Bloomberg-style split view with
+    /// coin metadata / ranges / social / news). Off by default while the
+    /// underlying consumer-web API is unofficial. Overridden by CLI flag
+    /// `--beta-research-pane` or env var `CDCX_BETA_RESEARCH_PANE=1`.
+    pub beta_research_pane: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,6 +104,28 @@ impl TuiConfig {
             _ => 2, // "medium" or default
         }
     }
+
+    /// Resolve the beta research-pane flag with the documented precedence:
+    /// CLI flag > env var > config file > default (false).
+    ///
+    /// `flag` is the `--beta-research-pane` CLI arg (true if present). Env
+    /// var accepts `1`, `true`, `yes` (case-insensitive) to enable.
+    pub fn resolve_beta_research_pane(&self, flag: bool) -> bool {
+        if flag {
+            return true;
+        }
+        if let Ok(v) = std::env::var("CDCX_BETA_RESEARCH_PANE") {
+            let v = v.to_ascii_lowercase();
+            if matches!(v.as_str(), "1" | "true" | "yes") {
+                return true;
+            }
+            if matches!(v.as_str(), "0" | "false" | "no") {
+                return false;
+            }
+            // Unrecognised value: fall through to config.
+        }
+        self.beta_research_pane.unwrap_or(false)
+    }
 }
 
 #[cfg(test)]
@@ -131,5 +158,35 @@ mod tests {
         let config: TuiConfig = toml::from_str("").unwrap();
         assert!(config.theme.is_none());
         assert_eq!(config.tick_rate(), 250);
+    }
+
+    #[test]
+    fn test_beta_flag_defaults_off() {
+        std::env::remove_var("CDCX_BETA_RESEARCH_PANE");
+        let cfg = TuiConfig::default();
+        assert!(!cfg.resolve_beta_research_pane(false));
+    }
+
+    #[test]
+    fn test_beta_cli_flag_wins_over_config_false() {
+        std::env::remove_var("CDCX_BETA_RESEARCH_PANE");
+        let cfg = TuiConfig {
+            beta_research_pane: Some(false),
+            ..Default::default()
+        };
+        assert!(
+            cfg.resolve_beta_research_pane(true),
+            "CLI --beta-research-pane must override config's explicit false"
+        );
+    }
+
+    #[test]
+    fn test_beta_config_on_enables_when_no_flag() {
+        std::env::remove_var("CDCX_BETA_RESEARCH_PANE");
+        let cfg = TuiConfig {
+            beta_research_pane: Some(true),
+            ..Default::default()
+        };
+        assert!(cfg.resolve_beta_research_pane(false));
     }
 }

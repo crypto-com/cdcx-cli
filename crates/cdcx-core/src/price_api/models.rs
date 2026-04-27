@@ -73,8 +73,16 @@ pub struct RedditPost {
     #[serde(default)]
     pub create_time: Option<String>,
     pub title: String,
+    /// Path on reddit.com (e.g. `/r/Bitcoin/comments/xxx/...`). Prefix with
+    /// `https://reddit.com` to open in browser.
     #[serde(default)]
     pub url: Option<String>,
+    /// Self-post body. Absent for link posts.
+    #[serde(default)]
+    pub text: Option<String>,
+    /// External link for link-type posts.
+    #[serde(default)]
+    pub link: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -89,6 +97,8 @@ pub struct VideoNews {
     pub title: String,
     #[serde(default)]
     pub create_time: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// Response from `meta/v2/all-tokens` — the slug/id directory.

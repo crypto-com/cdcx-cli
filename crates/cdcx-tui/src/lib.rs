@@ -46,6 +46,9 @@ pub struct TuiOptions {
     pub profile: Option<String>,
     pub theme: Option<String>,
     pub setup: bool,
+    /// Opt-in flag for the price-api research pane (Bloomberg-style split
+    /// view). When false, `\` reverts to the original chart-only split.
+    pub beta_research_pane: bool,
 }
 
 pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +68,9 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
 
     // Load TUI config (re-read after setup may have written it)
     let config = TuiConfig::load();
+    // Merge CLI flag with config + env var. CLI wins when present; otherwise
+    // env var; otherwise config value; otherwise off.
+    let beta_research_pane = config.resolve_beta_research_pane(opts.beta_research_pane);
     let theme_name = opts
         .theme
         .as_deref()
@@ -248,6 +254,13 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     let watchlist = config.watchlist.clone();
     let mut app = App::new(state, &watchlist);
     app.tick_rate_ms = config.tick_rate();
+    app.beta_research_pane = beta_research_pane;
+    if beta_research_pane {
+        app.state.toast(
+            "Research pane (beta) enabled — press \\ in Market for split view",
+            crate::state::ToastStyle::Info,
+        );
+    }
 
     // Initialize active tab with data
     app.on_tick();

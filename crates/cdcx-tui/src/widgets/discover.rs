@@ -5,7 +5,7 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use cdcx_core::price_api::{
@@ -373,18 +373,29 @@ pub fn render_trending(
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-/// News panel with Reddit / Video / Highlights sub-tabs. `scroll` is clamped
-/// to the available items by the tab before it reaches us.
+/// News panel with Reddit / Video / Highlights sub-tabs.
+///
+/// `selected` is a row index into the active sub-tab's list (clamped by the
+/// caller). `expanded` toggles inline rendering of the selected item's body
+/// / description / URL — the expansion sits below the highlighted row rather
+/// than replacing the list.
+#[allow(clippy::too_many_arguments)]
 pub fn render_news(
     frame: &mut Frame,
     area: Rect,
     active: NewsPanel,
     reddit: Option<&[RedditPost]>,
     videos: Option<&[VideoNews]>,
-    scroll: usize,
+    selected: usize,
+    expanded: bool,
     colors: &ThemeColors,
 ) {
-    let title = format!("News  [N:cycle]  \u{2190} {}", active.label());
+    let footer = if expanded {
+        "J/K:nav  Enter:collapse  b:open"
+    } else {
+        "J/K:nav  Enter:expand  b:open  N:cycle"
+    };
+    let title = format!("News  [{}]  \u{2190} {}", footer, active.label());
     let block = panel_block(&title, colors);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -415,19 +426,167 @@ pub fn render_news(
     frame.render_widget(Paragraph::new(Line::from(sub_spans)), sub_area);
 
     match active {
-        NewsPanel::Reddit => render_reddit_list(frame, list_area, reddit, scroll, colors),
-        NewsPanel::Video => render_video_list(frame, list_area, videos, scroll, colors),
+        NewsPanel::Reddit => {
+            render_reddit_list(frame, list_area, reddit, selected, expanded, colors)
+        }
+        NewsPanel::Video => render_video_list(frame, list_area, videos, selected, expanded, colors),
         NewsPanel::Highlights => {
-            render_highlights(frame, list_area, reddit, videos, scroll, colors)
+            render_highlights(frame, list_area, reddit, videos, selected, colors)
         }
     }
+}
+
+/// Compute which item index starts at the top of the visible viewport so the
+/// `selected` item stays on-screen. Keeps the cursor at least one row from
+/// the edges when possible to preserve context.
+fn viewport_start(selected: usize, total: usize, visible: usize) -> usize {
+    if total <= visible || selected < visible.saturating_sub(1) {
+        return 0;
+    }
+    selected + 1 - visible
+}
+
+/// Render the inline-expanded preview for a Reddit post directly after the
+/// selected row. Includes author, score, body (if any), and source URL.
+fn reddit_expansion_lines(
+    post: &RedditPost,
+    max_width: usize,
+    colors: &ThemeColors,
+) -> Vec<Line<'static>> {
+    let mut out = Vec::new();
+    // Meta line: author · score · time
+    let meta = format!(
+        " u/{}   {} upvotes   {}",
+        post.username.clone().unwrap_or_else(|| "—".into()),
+        post.upvotes,
+        post.create_time.clone().unwrap_or_default()
+    );
+    out.push(Line::from(Span::styled(
+        meta,
+        Style::default().fg(colors.muted),
+    )));
+
+    // Body — wrap manually to max_width so the Paragraph doesn't re-wrap
+    // inside an expansion that already has bounded width.
+    let body = post
+        .text
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .unwrap_or("(no body text)");
+    for chunk in wrap_lines(body, max_width.saturating_sub(2)) {
+        out.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(chunk, Style::default().fg(colors.fg)),
+        ]));
+    }
+
+    // Source URL. Prefer external link (news-sharing posts) otherwise the
+    // comment thread.
+    let link = post.link.clone().or_else(|| {
+        post.url
+            .as_ref()
+            .map(|u| format!("https://reddit.com{}", u))
+    });
+    if let Some(link) = link {
+        out.push(Line::from(vec![
+            Span::styled(" \u{2192} ", Style::default().fg(colors.accent)),
+            Span::styled(
+                truncate(&link, max_width.saturating_sub(4)),
+                Style::default().fg(colors.muted),
+            ),
+        ]));
+    }
+    out
+}
+
+fn video_expansion_lines(
+    v: &VideoNews,
+    max_width: usize,
+    colors: &ThemeColors,
+) -> Vec<Line<'static>> {
+    let mut out = Vec::new();
+    let meta = format!(" {}", v.create_time.clone().unwrap_or_default());
+    out.push(Line::from(Span::styled(
+        meta,
+        Style::default().fg(colors.muted),
+    )));
+
+    let body = v
+        .description
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .unwrap_or("(no description)");
+    for chunk in wrap_lines(body, max_width.saturating_sub(2)) {
+        out.push(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(chunk, Style::default().fg(colors.fg)),
+        ]));
+    }
+
+    let url = format!("https://youtube.com/watch?v={}", v.id);
+    out.push(Line::from(vec![
+        Span::styled(" \u{2192} ", Style::default().fg(colors.accent)),
+        Span::styled(
+            truncate(&url, max_width.saturating_sub(4)),
+            Style::default().fg(colors.muted),
+        ),
+    ]));
+    out
+}
+
+/// Hard-wrap `text` to `max_width` characters per line. Soft-wraps at
+/// whitespace; falls back to character split for long unbroken runs.
+fn wrap_lines(text: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 {
+        return Vec::new();
+    }
+    // Paragraph breaks on blank lines — preserve those.
+    let mut out = Vec::new();
+    for para in text.split("\n\n") {
+        let flattened = para.replace('\n', " ");
+        let mut line = String::new();
+        for word in flattened.split_whitespace() {
+            if line.is_empty() {
+                // Long single word: hard-split.
+                if word.chars().count() > max_width {
+                    let mut remaining = word;
+                    while remaining.chars().count() > max_width {
+                        let piece: String = remaining.chars().take(max_width).collect();
+                        out.push(piece);
+                        remaining = &remaining[remaining
+                            .char_indices()
+                            .nth(max_width)
+                            .map(|(i, _)| i)
+                            .unwrap_or(remaining.len())..];
+                    }
+                    line.push_str(remaining);
+                } else {
+                    line.push_str(word);
+                }
+            } else if line.chars().count() + 1 + word.chars().count() <= max_width {
+                line.push(' ');
+                line.push_str(word);
+            } else {
+                out.push(std::mem::take(&mut line));
+                line.push_str(word);
+            }
+        }
+        if !line.is_empty() {
+            out.push(line);
+        }
+        // Blank separator between paragraphs (but not after the last one).
+    }
+    // Cap total lines so a wall-of-text post doesn't consume the whole panel.
+    out.truncate(12);
+    out
 }
 
 fn render_reddit_list(
     frame: &mut Frame,
     area: Rect,
     reddit: Option<&[RedditPost]>,
-    scroll: usize,
+    selected: usize,
+    expanded: bool,
     colors: &ThemeColors,
 ) {
     let Some(posts) = reddit else {
@@ -445,36 +604,56 @@ fn render_reddit_list(
         return;
     }
 
-    let lines: Vec<Line> = posts
-        .iter()
-        .skip(scroll)
-        .take(area.height as usize)
-        .map(|p| {
-            Line::from(vec![
-                Span::styled(
-                    format!(" {:>6} ", compact_time(p.create_time.as_deref())),
-                    Style::default().fg(colors.muted),
-                ),
-                Span::styled(
-                    format!("▲{:<4} ", p.upvotes),
-                    Style::default().fg(colors.positive),
-                ),
-                Span::styled(
-                    truncate(&p.title, area.width.saturating_sub(20) as usize),
-                    Style::default().fg(colors.fg),
-                ),
-            ])
-        })
-        .collect();
+    let visible = area.height as usize;
+    let start = viewport_start(selected, posts.len(), visible);
+    let mut lines: Vec<Line> = Vec::with_capacity(visible);
 
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+    for (idx, p) in posts.iter().enumerate().skip(start).take(visible) {
+        let is_sel = idx == selected;
+        let row_style = if is_sel {
+            Style::default()
+                .fg(colors.selected_fg)
+                .bg(colors.selected_bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(
+                    "{}{:>5} ",
+                    if is_sel { "\u{25B6} " } else { "  " },
+                    compact_time(p.create_time.as_deref())
+                ),
+                row_style,
+            ),
+            Span::styled(
+                format!("\u{25B2}{:<4} ", p.upvotes),
+                Style::default().fg(colors.positive),
+            ),
+            Span::styled(
+                truncate(&p.title, area.width.saturating_sub(22) as usize),
+                row_style,
+            ),
+        ]));
+        // Inline expansion: attach detail lines under the selected row, then
+        // let the rest of the list continue below.
+        if is_sel && expanded {
+            lines.extend(reddit_expansion_lines(p, area.width as usize, colors));
+        }
+    }
+
+    // Wrap disabled — selection highlight relies on each row occupying
+    // exactly one terminal line. Wrap would offset indices.
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn render_video_list(
     frame: &mut Frame,
     area: Rect,
     videos: Option<&[VideoNews]>,
-    scroll: usize,
+    selected: usize,
+    expanded: bool,
     colors: &ThemeColors,
 ) {
     let Some(videos) = videos else {
@@ -491,25 +670,42 @@ fn render_video_list(
         );
         return;
     }
-    let lines: Vec<Line> = videos
-        .iter()
-        .skip(scroll)
-        .take(area.height as usize)
-        .map(|v| {
-            Line::from(vec![
-                Span::styled(
-                    format!(" {:>6} ", compact_time(v.create_time.as_deref())),
-                    Style::default().fg(colors.muted),
+
+    let visible = area.height as usize;
+    let start = viewport_start(selected, videos.len(), visible);
+    let mut lines: Vec<Line> = Vec::with_capacity(visible);
+
+    for (idx, v) in videos.iter().enumerate().skip(start).take(visible) {
+        let is_sel = idx == selected;
+        let row_style = if is_sel {
+            Style::default()
+                .fg(colors.selected_fg)
+                .bg(colors.selected_bg)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.fg)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!(
+                    "{}{:>5} ",
+                    if is_sel { "\u{25B6} " } else { "  " },
+                    compact_time(v.create_time.as_deref())
                 ),
-                Span::styled("\u{25B6} ", Style::default().fg(colors.accent)),
-                Span::styled(
-                    truncate(&v.title, area.width.saturating_sub(12) as usize),
-                    Style::default().fg(colors.fg),
-                ),
-            ])
-        })
-        .collect();
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+                row_style,
+            ),
+            Span::styled("\u{25B6} ", Style::default().fg(colors.accent)),
+            Span::styled(
+                truncate(&v.title, area.width.saturating_sub(14) as usize),
+                row_style,
+            ),
+        ]));
+        if is_sel && expanded {
+            lines.extend(video_expansion_lines(v, area.width as usize, colors));
+        }
+    }
+
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn render_highlights(
@@ -517,11 +713,13 @@ fn render_highlights(
     area: Rect,
     reddit: Option<&[RedditPost]>,
     videos: Option<&[VideoNews]>,
-    scroll: usize,
+    selected: usize,
     colors: &ThemeColors,
 ) {
     // Highlights: top 5 reddit posts (by upvotes) + top 3 videos, interleaved
-    // by create_time. Upvote threshold keeps the list high-signal.
+    // by create_time. No inline expansion here — the merged list makes URL
+    // resolution ambiguous; users press N to drill into Reddit or Video
+    // sub-tabs for expansion and opening.
     let mut items: Vec<(String, Line)> = Vec::new();
     if let Some(posts) = reddit {
         let mut top = posts.iter().collect::<Vec<_>>();
@@ -531,11 +729,11 @@ fn render_highlights(
             let line = Line::from(vec![
                 Span::styled(" r/ ", Style::default().fg(colors.accent)),
                 Span::styled(
-                    format!("▲{:<4} ", p.upvotes),
+                    format!("\u{25B2}{:<4} ", p.upvotes),
                     Style::default().fg(colors.positive),
                 ),
                 Span::styled(
-                    truncate(&p.title, area.width.saturating_sub(12) as usize),
+                    truncate(&p.title, area.width.saturating_sub(14) as usize),
                     Style::default().fg(colors.fg),
                 ),
             ]);
@@ -566,13 +764,33 @@ fn render_highlights(
 
     // Newest first.
     items.sort_by(|a, b| b.0.cmp(&a.0));
+    let visible = area.height as usize;
+    let start = viewport_start(selected, items.len(), visible);
     let lines: Vec<Line> = items
         .into_iter()
-        .skip(scroll)
-        .take(area.height as usize)
-        .map(|(_, line)| line)
+        .enumerate()
+        .skip(start)
+        .take(visible)
+        .map(|(idx, (_, line))| {
+            if idx == selected {
+                // Prepend a selection marker without mutating the stored line.
+                let mut spans = line.spans;
+                // Replace the leading spacer with a marker.
+                if let Some(first) = spans.first_mut() {
+                    *first = Span::styled(
+                        "\u{25B6}".to_string(),
+                        Style::default()
+                            .fg(colors.accent)
+                            .add_modifier(Modifier::BOLD),
+                    );
+                }
+                Line::from(spans)
+            } else {
+                line
+            }
+        })
         .collect();
-    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), area);
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn truncate(s: &str, max: usize) -> String {

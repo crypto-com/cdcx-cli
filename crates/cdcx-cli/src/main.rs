@@ -121,11 +121,16 @@ async fn main() {
             };
             let theme = sub.get_one::<String>("theme").cloned();
             let setup = sub.get_flag("setup");
+            let beta_flag = sub.get_flag("beta-research-pane");
+            // Resolve the beta flag here so the TUI never has to read env/TOML
+            // for it. config.toml lookup happens inside run() where TuiConfig
+            // is already loaded, so we pass the flag through and let it merge.
             let opts = cdcx_tui::TuiOptions {
                 env,
                 profile: global.profile.clone(),
                 theme,
                 setup,
+                beta_research_pane: beta_flag,
             };
             if let Err(e) = cdcx_tui::run(opts).await {
                 eprintln!("TUI error: {}", e);

@@ -184,6 +184,15 @@ pub fn build_static_cli() -> clap::Command {
                     .long("setup")
                     .action(clap::ArgAction::SetTrue)
                     .help("Run the setup wizard"),
+            )
+            .arg(
+                clap::Arg::new("beta-research-pane")
+                    .long("beta-research-pane")
+                    .action(clap::ArgAction::SetTrue)
+                    .help(
+                        "Enable the beta research pane in split view \
+                         (price-api.crypto.com consumer-web API, unofficial)",
+                    ),
             ),
     );
 
