@@ -384,9 +384,13 @@ fn test_positional_args_work() {
 }
 
 #[test]
-fn test_default_value_applied() {
+fn test_trade_order_rejects_missing_type() {
     require_spec!();
-    // Overlay: side=pos0, instrument_name=pos1, quantity=pos2, type default=MARKET
+    // Regression: the `type` param used to default to MARKET via the trade
+    // overlay, which silently promoted `--price` limit orders into market
+    // fills. The overlay now omits that default — per the OpenAPI spec,
+    // `type` is required with no server default. The CLI must refuse to
+    // submit the command, not silently pick the more destructive enum value.
     Command::cargo_bin("cdcx")
         .unwrap()
         .args([
@@ -400,8 +404,8 @@ fn test_default_value_applied() {
             "--dry-run",
         ])
         .assert()
-        .success()
-        .stdout(predicates::str::contains("private/create-order"));
+        .failure()
+        .stderr(predicates::str::contains("--type"));
 }
 
 #[test]

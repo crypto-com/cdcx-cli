@@ -112,6 +112,16 @@ impl SchemaRegistry {
         Self::from_openapi(spec).map_err(SchemaError::from)
     }
 
+    /// Same as `from_fixture`, but also applies the real production schema
+    /// overlays (schemas/*.toml). Used by tests that need to exercise the
+    /// fixture + overlay merge path — e.g. to assert that safety-critical
+    /// overlay decisions (required params, enum defaults) behave correctly.
+    pub fn from_fixture_with_overlays() -> Result<Self, SchemaError> {
+        let spec = include_str!("../../../tests/fixtures/test-spec.yaml");
+        let overlays = Self::load_overlays();
+        Self::from_openapi_with_overlay(spec, &overlays).map_err(SchemaError::from)
+    }
+
     fn load_overlays() -> Vec<OverlayGroup> {
         [
             include_str!("../../../schemas/market.toml"),

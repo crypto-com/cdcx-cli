@@ -383,6 +383,47 @@ mod tests {
         assert!(sub_names.contains(&"mcp".to_string()));
     }
 
+    /// Regression: `schemas/trade.toml` used to carry `default = "MARKET"` for
+    /// the `type` param, which silently turned `cdcx trade order BUY INST QTY
+    /// --price P` into a MARKET order with an ignored price field. This test
+    /// pins the fix: without `--type`, the CLI must reject the command; with
+    /// `--type LIMIT`, it must parse and the payload must contain `LIMIT`.
+    #[test]
+    fn test_trade_order_requires_explicit_type() {
+        let registry =
+            SchemaRegistry::from_fixture_with_overlays().expect("fixture + overlays should parse");
+        let app = build_cli(&registry);
+
+        let missing_type = app.clone().try_get_matches_from([
+            "cdcx", "trade", "order", "BUY", "BTC_USDT", "0.0001", "--price", "710",
+        ]);
+        assert!(
+            missing_type.is_err(),
+            "trade order without --type must fail to parse — otherwise a missing flag becomes a market order"
+        );
+
+        let explicit_limit = app
+            .clone()
+            .try_get_matches_from([
+                "cdcx", "trade", "order", "BUY", "BTC_USDT", "0.0001", "--price", "710", "--type",
+                "LIMIT",
+            ])
+            .expect("trade order with --type LIMIT should parse");
+
+        let trade_sub = explicit_limit
+            .subcommand_matches("trade")
+            .and_then(|m| m.subcommand_matches("order"))
+            .expect("subcommand path");
+        let trade_endpoint = registry
+            .get_by_method("private/create-order")
+            .expect("private/create-order must be in registry");
+        let payload = extract_params(trade_sub, &trade_endpoint.params);
+        assert_eq!(
+            payload["type"], "LIMIT",
+            "payload type must echo the explicit --type value, not fall back to MARKET"
+        );
+    }
+
     #[test]
     fn test_build_cli_has_global_flags() {
         let registry = SchemaRegistry::from_fixture().expect("fixture spec should parse");
