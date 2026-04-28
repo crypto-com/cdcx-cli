@@ -187,6 +187,18 @@ pub fn build_static_cli() -> clap::Command {
             ),
     );
 
+    // Update subcommand
+    app = app.subcommand(
+        clap::Command::new("update")
+            .about("Check for and install updates")
+            .arg(
+                clap::Arg::new("check")
+                    .long("check")
+                    .action(clap::ArgAction::SetTrue)
+                    .help("Only check for updates, don't install"),
+            ),
+    );
+
     app
 }
 

@@ -532,6 +532,69 @@ pub async fn run_stream(
     Ok(serde_json::json!({"stream": "completed"}))
 }
 
+pub async fn run_update(check_only: bool) -> Result<(), CdcxError> {
+    use cdcx_core::update::{download_and_install, is_newer, UpdateChecker};
+
+    let current = env!("CARGO_PKG_VERSION");
+    eprintln!("Current version: {}", current);
+    eprintln!("Checking for updates...");
+
+    let checker = UpdateChecker::default();
+    let info = checker
+        .fetch_latest()
+        .await
+        .map_err(|_| CdcxError::Config("Check updates failed, try again later".into()))?;
+
+    if !is_newer(&info.version, current) {
+        eprintln!("Already up to date ({})", current);
+        return Ok(());
+    }
+
+    eprintln!("New version available: {} → {}", current, info.version);
+
+    if check_only {
+        eprintln!("Release: {}", info.html_url);
+        return Ok(());
+    }
+
+    if info.download_url.is_none() {
+        eprintln!(
+            "No pre-built binary for {} — download manually:",
+            cdcx_core::update::current_target()
+        );
+        eprintln!("  {}", info.html_url);
+        return Ok(());
+    }
+
+    let is_tty = std::io::IsTerminal::is_terminal(&std::io::stderr());
+    if is_tty {
+        eprint!("Install version {}? [y/N] ", info.version);
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(CdcxError::Io)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            eprintln!("Update cancelled.");
+            return Ok(());
+        }
+    }
+
+    eprintln!(
+        "Downloading {}...",
+        info.asset_name.as_deref().unwrap_or("update")
+    );
+
+    download_and_install(&info)
+        .await
+        .map_err(|e| CdcxError::Config(format!("Update failed: {e}")))?;
+
+    eprintln!(
+        "Updated to {} — restart cdcx to use the new version.",
+        info.version
+    );
+    Ok(())
+}
+
 pub async fn run_mcp(
     services: String,
     allow_dangerous: bool,

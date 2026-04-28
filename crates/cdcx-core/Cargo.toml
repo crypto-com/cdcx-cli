@@ -25,11 +25,11 @@ serde_yaml = "0.9"
 # ── TLS: rustls on Linux (cross-compile friendly), native-tls elsewhere ──
 
 [target.'cfg(target_os = "linux")'.dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
 [dev-dependencies]

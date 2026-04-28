@@ -1,16 +1,137 @@
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Paragraph;
+use ratatui::widgets::{Gauge, Paragraph};
 use ratatui::Frame;
 
-use crate::state::AppState;
+use crate::state::{AppState, UpdateState};
 
 /// Draw a scrolling ticker tape showing top gainers and losers.
+/// When an update notice or progress is present, pins it to the left.
 pub fn draw_ticker_tape(frame: &mut Frame, area: Rect, state: &AppState, tick: u64) {
     if area.width < 10 {
         return;
     }
+
+    // If actively updating, show progress bar on the left instead of notice
+    let notice_width = state
+        .update_notice
+        .as_ref()
+        .map(|n| (n.len() as u16 + 5).min(area.width / 2))
+        .unwrap_or(area.width / 3);
+
+    let (tape_area, left_area) = if let Some(ref progress) = state.update_progress {
+        let width = notice_width.max(20).min(area.width / 2);
+        let [left, right] = ratatui::layout::Layout::horizontal([
+            ratatui::layout::Constraint::Length(width),
+            ratatui::layout::Constraint::Fill(1),
+        ])
+        .areas(area);
+
+        match progress {
+            UpdateState::Downloading { downloaded, total } => {
+                let (ratio, label) = if let Some(t) = total {
+                    let r = (*downloaded as f64 / *t as f64).min(1.0);
+                    let mb = *downloaded as f64 / 1_048_576.0;
+                    let total_mb = *t as f64 / 1_048_576.0;
+                    (r, format!("{:.1}/{:.1} MB", mb, total_mb))
+                } else {
+                    let mb = *downloaded as f64 / 1_048_576.0;
+                    (0.0, format!("{:.1} MB...", mb))
+                };
+                frame.render_widget(
+                    Gauge::default()
+                        .ratio(ratio)
+                        .label(label)
+                        .gauge_style(
+                            Style::default()
+                                .fg(state.theme.colors.accent)
+                                .bg(state.theme.colors.status_bar_bg),
+                        )
+                        .style(
+                            Style::default()
+                                .fg(state.theme.colors.status_bar_fg)
+                                .bg(state.theme.colors.status_bar_bg),
+                        ),
+                    left,
+                );
+            }
+            UpdateState::Extracting | UpdateState::Installing => {
+                let label = match progress {
+                    UpdateState::Extracting => "Extracting...",
+                    _ => "Installing...",
+                };
+                frame.render_widget(
+                    Gauge::default()
+                        .ratio(0.5)
+                        .label(label)
+                        .gauge_style(
+                            Style::default()
+                                .fg(state.theme.colors.accent)
+                                .bg(state.theme.colors.status_bar_bg),
+                        )
+                        .style(
+                            Style::default()
+                                .fg(state.theme.colors.status_bar_fg)
+                                .bg(state.theme.colors.status_bar_bg),
+                        ),
+                    left,
+                );
+            }
+            UpdateState::Done { version } => {
+                let text = format!(" \u{2714} Updated to v{} \u{2014} restarting... ", version);
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![Span::styled(
+                        text,
+                        Style::default()
+                            .fg(state.theme.colors.positive)
+                            .add_modifier(Modifier::BOLD),
+                    )]))
+                    .style(Style::default().bg(state.theme.colors.status_bar_bg)),
+                    left,
+                );
+            }
+            UpdateState::Failed(msg) => {
+                let short = if msg.len() > 30 { &msg[..30] } else { msg };
+                let text = format!(" \u{2717} {} ", short);
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![Span::styled(
+                        text,
+                        Style::default()
+                            .fg(state.theme.colors.negative)
+                            .add_modifier(Modifier::BOLD),
+                    )]))
+                    .style(Style::default().bg(state.theme.colors.status_bar_bg)),
+                    left,
+                );
+            }
+        }
+
+        (right, Some(left))
+    } else if let Some(ref notice) = state.update_notice {
+        let notice_width = (notice.len() as u16 + 5).min(area.width / 2);
+        let [left, right] = ratatui::layout::Layout::horizontal([
+            ratatui::layout::Constraint::Length(notice_width),
+            ratatui::layout::Constraint::Fill(1),
+        ])
+        .areas(area);
+
+        let text = format!(" \u{1f680} {} ", notice);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![Span::styled(
+                text,
+                Style::default().fg(state.theme.colors.muted),
+            )]))
+            .style(Style::default().bg(state.theme.colors.status_bar_bg)),
+            left,
+        );
+        (right, Some(left))
+    } else {
+        (area, None)
+    };
+
+    let _ = left_area;
+    let area = tape_area;
 
     let mut entries: Vec<(&str, f64, f64)> = state
         .tickers
