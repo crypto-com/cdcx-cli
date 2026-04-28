@@ -97,6 +97,13 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     let mut loading_events = EventHandler::new(60); // fast tick for smooth animation
     let mut loading_state = loading::LoadingState::new();
 
+    // Update check channels — created early so the check runs in parallel with loading
+    let (update_tx, mut update_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (progress_tx, mut progress_rx) =
+        tokio::sync::mpsc::unbounded_channel::<cdcx_core::update::UpdateProgress>();
+    let update_info: std::sync::Arc<tokio::sync::Mutex<Option<cdcx_core::update::ReleaseInfo>>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(None));
+
     // Spawn both fetches concurrently, collect results with animated loading
     let (instruments, instrument_types, initial_tickers) = {
         use tokio::sync::oneshot;
@@ -117,6 +124,36 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
             let result = fetch_tickers(&api_tick).await;
             let _ = tick_tx.send(result);
         });
+
+        // Background update check — runs in parallel with instruments + tickers fetch
+        {
+            let update_tx = update_tx.clone();
+            let update_info = update_info.clone();
+            tokio::spawn(async move {
+                let checker = cdcx_core::update::UpdateChecker::default();
+                let current = env!("CARGO_PKG_VERSION");
+                if let Some(info) = checker
+                    .cached_release_info()
+                    .filter(|i| cdcx_core::update::is_newer(&i.version, current))
+                {
+                    let v = info.version.clone();
+                    *update_info.lock().await = Some(info);
+                    let _ = update_tx.send(format!("v{} available \u{2014} click to update", v));
+                    return;
+                }
+                if checker.should_check() {
+                    if let Ok(info) = checker.fetch_latest().await {
+                        if cdcx_core::update::is_newer(&info.version, current) {
+                            let _ = update_tx.send(format!(
+                                "v{} available \u{2014} click to update",
+                                info.version
+                            ));
+                            *update_info.lock().await = Some(info);
+                        }
+                    }
+                }
+            });
+        }
 
         let mut instruments = None;
         let mut tickers = None;
@@ -226,6 +263,8 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         pending_navigation: None,
         isolated_positions: std::collections::HashMap::new(),
         positions_snapshot: Vec::new(),
+        update_notice: None,
+        update_progress: None,
     };
 
     let watchlist = config.watchlist.clone();
@@ -361,6 +400,24 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
                                 last_subs = subs;
                                 let _ = terminal.clear();
                             }
+                            // Trigger download when update bar is clicked
+                            if app.should_update && app.state.update_progress.is_none() {
+                                app.should_update = false;
+                                app.state.update_progress =
+                                    Some(state::UpdateState::Downloading { downloaded: 0, total: None });
+                                let info_ref = update_info.clone();
+                                let ptx = progress_tx.clone();
+                                tokio::spawn(async move {
+                                    let info = info_ref.lock().await.clone();
+                                    if let Some(info) = info {
+                                        if let Err(e) = cdcx_core::update::download_and_install_with_progress(&info, ptx.clone()).await {
+                                            let _ = ptx.send(cdcx_core::update::UpdateProgress::Failed(e.to_string()));
+                                        }
+                                    } else {
+                                        let _ = ptx.send(cdcx_core::update::UpdateProgress::Failed("No release info available".into()));
+                                    }
+                                });
+                            }
                         }
                         Event::Tick => {
                             app.on_tick();
@@ -450,8 +507,47 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+            notice = update_rx.recv() => {
+                if let Some(msg) = notice {
+                    app.state.update_notice = Some(msg);
+                }
+            }
+            prog = progress_rx.recv() => {
+                if let Some(p) = prog {
+                    match p {
+                        cdcx_core::update::UpdateProgress::Downloading { downloaded, total } => {
+                            app.state.update_progress =
+                                Some(state::UpdateState::Downloading { downloaded, total });
+                        }
+                        cdcx_core::update::UpdateProgress::Extracting => {
+                            app.state.update_progress = Some(state::UpdateState::Extracting);
+                        }
+                        cdcx_core::update::UpdateProgress::Installing => {
+                            app.state.update_progress = Some(state::UpdateState::Installing);
+                        }
+                        cdcx_core::update::UpdateProgress::Done => {
+                            let version = update_info.lock().await
+                                .as_ref()
+                                .map(|i| i.version.clone())
+                                .unwrap_or_else(|| "latest".into());
+                            app.state.update_progress = Some(state::UpdateState::Done { version });
+                            app.state.update_notice = None;
+                        }
+                        cdcx_core::update::UpdateProgress::Failed(msg) => {
+                            app.state.update_progress = Some(state::UpdateState::Failed(msg.clone()));
+                            app.state.toast(format!("Update failed: {}", msg), state::ToastStyle::Error);
+                        }
+                    }
+                }
+            }
         }
     }
+
+    // If update completed, restart with same args
+    let restart = matches!(
+        app.state.update_progress,
+        Some(state::UpdateState::Done { .. })
+    );
 
     stream_mgr.shutdown();
     if let Some(ref u) = user_stream_mgr {
@@ -459,7 +555,31 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     }
     crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture).ok();
     ratatui::restore();
+
+    if restart {
+        let exe = std::env::current_exe().expect("cannot find current binary");
+        let args: Vec<String> = std::env::args().collect();
+        eprintln!("Restarting cdcx...");
+        let err = exec_replace(&exe, &args);
+        eprintln!("Failed to restart: {}", err);
+        std::process::exit(1);
+    }
+
     Ok(())
+}
+
+#[cfg(unix)]
+fn exec_replace(exe: &std::path::Path, args: &[String]) -> std::io::Error {
+    use std::os::unix::process::CommandExt;
+    std::process::Command::new(exe).args(&args[1..]).exec()
+}
+
+#[cfg(not(unix))]
+fn exec_replace(exe: &std::path::Path, args: &[String]) -> std::io::Error {
+    match std::process::Command::new(exe).args(&args[1..]).spawn() {
+        Ok(_) => std::process::exit(0),
+        Err(e) => e,
+    }
 }
 
 fn load_cdcx_config() -> Result<Option<cdcx_core::config::Config>, cdcx_core::error::CdcxError> {

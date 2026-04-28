@@ -12,4 +12,5 @@ pub mod sanitize;
 pub mod schema;
 pub mod signing;
 pub mod tables;
+pub mod update;
 pub mod ws_client;

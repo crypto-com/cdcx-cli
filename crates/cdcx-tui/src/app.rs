@@ -34,6 +34,7 @@ pub struct App {
     pub active_tab: usize,
     pub mode: Mode,
     pub should_quit: bool,
+    pub should_update: bool,
     pub show_help: bool,
     pub show_spotlight: bool,
     pub split_view: bool,
@@ -60,6 +61,7 @@ impl App {
             active_tab: 0,
             mode: Mode::Normal,
             should_quit: false,
+            should_update: false,
             show_help: false,
             show_spotlight: false,
             split_view: false,
@@ -696,6 +698,15 @@ impl App {
     pub fn on_tick(&mut self) {
         self.tick_count += 1;
 
+        // Auto-quit after successful update to trigger restart
+        if matches!(
+            self.state.update_progress,
+            Some(crate::state::UpdateState::Done { .. })
+        ) {
+            self.should_quit = true;
+            return;
+        }
+
         // Check price alerts
         let triggered = self.state.check_alerts();
         for msg in triggered {
@@ -756,6 +767,24 @@ impl App {
                 if self.show_spotlight {
                     self.show_spotlight = false;
                     return;
+                }
+
+                // Click on update notice (row 0, left portion) → start download
+                if mouse.row == 0
+                    && self.state.update_notice.is_some()
+                    && self.state.update_progress.is_none()
+                {
+                    let notice_width = self
+                        .state
+                        .update_notice
+                        .as_ref()
+                        .map(|n| n.len() as u16 + 5)
+                        .unwrap_or(0)
+                        .min(self.state.terminal_size.0 / 2);
+                    if mouse.column < notice_width {
+                        self.should_update = true;
+                        return;
+                    }
                 }
 
                 // Click in tab bar area (rows 1-3) → switch tabs
@@ -1087,6 +1116,8 @@ mod tests {
             user_connection: crate::state::ConnectionStatus::Error,
             isolated_positions: std::collections::HashMap::new(),
             positions_snapshot: Vec::new(),
+            update_notice: None,
+            update_progress: None,
         };
         let mut app = App::new(state, &[]);
         // Seed market tab with an instrument so workflow triggers have something to select

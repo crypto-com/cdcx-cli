@@ -129,6 +129,19 @@ pub struct AppState {
     /// Latest snapshot of all open positions (any margin type). Source of truth for
     /// the Positions tab and the isolated_positions cache. Updated via WS pushes.
     pub positions_snapshot: Vec<serde_json::Value>,
+    /// Update notice shown in the ticker tape when a newer CLI version is available.
+    pub update_notice: Option<String>,
+    /// Download progress state for in-TUI updates.
+    pub update_progress: Option<UpdateState>,
+}
+
+#[derive(Debug, Clone)]
+pub enum UpdateState {
+    Downloading { downloaded: u64, total: Option<u64> },
+    Extracting,
+    Installing,
+    Done { version: String },
+    Failed(String),
 }
 
 impl AppState {
