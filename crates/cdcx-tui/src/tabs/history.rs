@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use crate::format::format_price;
 use crate::state::{AppState, RestRequest};
 use crate::tabs::{DataEvent, Tab};
 
@@ -15,7 +16,7 @@ struct HistoryOrder {
     instrument: String,
     side: String,
     order_type: String,
-    price: f64,
+    price: String,
     quantity: f64,
     status: String,
     time: String,
@@ -68,7 +69,7 @@ impl HistoryTab {
                         instrument: t.instrument_name.clone(),
                         side: format!("{:?}", t.side).to_uppercase(),
                         order_type: "MARKET".into(), // paper trades are always filled
-                        price: t.price,
+                        price: format_price(t.price),
                         quantity: t.quantity,
                         status: "FILLED".into(),
                         time: t.timestamp.chars().take(19).collect(), // trim to datetime
@@ -149,13 +150,23 @@ impl Tab for HistoryTab {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string(),
-                            price: item
-                                .get("avg_price")
-                                .or_else(|| item.get("limit_price"))
-                                .or_else(|| item.get("price"))
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0.0),
+                            price: format_price(
+                                item.get("avg_price")
+                                    .and_then(|v| v.as_str())
+                                    .filter(|s| *s != "0")
+                                    .or_else(|| {
+                                        item.get("limit_price")
+                                            .and_then(|v| v.as_str())
+                                            .filter(|s| *s != "0")
+                                    })
+                                    .or_else(|| {
+                                        item.get("price")
+                                            .and_then(|v| v.as_str())
+                                            .filter(|s| *s != "0")
+                                    })
+                                    .and_then(|s| s.parse().ok())
+                                    .unwrap_or(0.0),
+                            ),
                             quantity: item
                                 .get("quantity")
                                 .and_then(|v| v.as_str())
@@ -279,11 +290,7 @@ impl Tab for HistoryTab {
                             Cell::from(o.instrument.as_str()),
                             Cell::from(o.side.as_str()),
                             Cell::from(o.order_type.as_str()),
-                            Cell::from(if o.price > 0.0 {
-                                format!("{:.2}", o.price)
-                            } else {
-                                "MARKET".into()
-                            }),
+                            Cell::from(o.price.as_str()),
                             Cell::from(format!("{:.4}", o.quantity)),
                             Cell::from(o.status.as_str()),
                             Cell::from(o.time.as_str()),
@@ -294,11 +301,7 @@ impl Tab for HistoryTab {
                             Cell::from(o.instrument.as_str()),
                             Cell::from(o.side.as_str()).style(Style::default().fg(side_color)),
                             Cell::from(o.order_type.as_str()),
-                            Cell::from(if o.price > 0.0 {
-                                format!("{:.2}", o.price)
-                            } else {
-                                "MARKET".into()
-                            }),
+                            Cell::from(o.price.as_str()),
                             Cell::from(format!("{:.4}", o.quantity)),
                             Cell::from(o.status.as_str()).style(Style::default().fg(status_color)),
                             Cell::from(o.time.as_str())

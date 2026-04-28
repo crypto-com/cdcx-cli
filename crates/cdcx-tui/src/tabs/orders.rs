@@ -5,6 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
+use crate::format::format_price;
 use crate::state::{AppState, RestRequest};
 use crate::tabs::{DataEvent, Tab};
 
@@ -14,7 +15,7 @@ struct Order {
     instrument: String,
     side: String,
     order_type: String,
-    price: f64,
+    price: String,
     quantity: f64,
     filled_qty: f64,
     status: String,
@@ -54,12 +55,18 @@ fn parse_order_record(item: &serde_json::Value) -> Option<Order> {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string(),
-        price: item
-            .get("limit_price")
-            .or_else(|| item.get("price"))
-            .and_then(|v| v.as_str())
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0.0),
+        price: format_price(
+            item.get("limit_price")
+                .and_then(|v| v.as_str())
+                .filter(|s| *s != "0")
+                .or_else(|| {
+                    item.get("price")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| *s != "0")
+                })
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0),
+        ),
         quantity: item
             .get("quantity")
             .and_then(|v| v.as_str())
@@ -120,7 +127,7 @@ impl OrdersTab {
                     instrument: o.instrument_name.clone(),
                     side: format!("{:?}", o.side).to_uppercase(),
                     order_type: format!("{:?}", o.order_type).to_uppercase(),
-                    price: o.price.unwrap_or(0.0),
+                    price: format_price(o.price.unwrap_or(0.0)),
                     quantity: o.quantity,
                     filled_qty: 0.0,
                     status: format!("{:?}", o.status).to_uppercase(),
@@ -301,11 +308,7 @@ impl Tab for OrdersTab {
                             Cell::from(o.instrument.as_str()),
                             Cell::from(o.side.as_str()),
                             Cell::from(o.order_type.as_str()),
-                            Cell::from(if o.price > 0.0 {
-                                format!("{:.2}", o.price)
-                            } else {
-                                "MARKET".into()
-                            }),
+                            Cell::from(o.price.as_str()),
                             Cell::from(format!("{:.4}", o.quantity)),
                             Cell::from(format!("{:.1}%", fill_pct)),
                             Cell::from(o.status.as_str()),
@@ -316,11 +319,7 @@ impl Tab for OrdersTab {
                             Cell::from(o.instrument.as_str()),
                             Cell::from(o.side.as_str()).style(Style::default().fg(side_color)),
                             Cell::from(o.order_type.as_str()),
-                            Cell::from(if o.price > 0.0 {
-                                format!("{:.2}", o.price)
-                            } else {
-                                "MARKET".into()
-                            }),
+                            Cell::from(o.price.as_str()),
                             Cell::from(format!("{:.4}", o.quantity)),
                             Cell::from(format!("{:.1}%", fill_pct)),
                             Cell::from(o.status.as_str()).style(Style::default().fg(status_color)),
