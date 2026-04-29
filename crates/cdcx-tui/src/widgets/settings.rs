@@ -374,7 +374,9 @@ pub fn save_settings(
 
     let toml_str = toml::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    std::fs::write(&path, toml_str).map_err(|e| format!("Failed to write config: {}", e))?;
+    let schema_url = cdcx_core::github::raw("main", "schemas/configs/tui.json");
+    let output = format!("#:schema {}\n\n{}", schema_url, toml_str);
+    std::fs::write(&path, output).map_err(|e| format!("Failed to write config: {}", e))?;
 
     Ok(())
 }

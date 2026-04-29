@@ -523,8 +523,10 @@ impl SetupState {
             .join(", ");
         let tick_ms = self.tick_rates[self.tick_rate_idx].0;
 
+        let schema_url = cdcx_core::github::raw("main", "schemas/configs/tui.json");
         format!(
-            "theme = \"{}\"\ntick_rate_ms = {}\nwatchlist = [{}]\n",
+            "#:schema {}\n\ntheme = \"{}\"\ntick_rate_ms = {}\nwatchlist = [{}]\n",
+            schema_url,
             self.selected_theme_name(),
             tick_ms,
             watchlist_str,

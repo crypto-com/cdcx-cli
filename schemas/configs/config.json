@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/crypto-com/cdcx-cli/refs/heads/main/schemas/configs/config.json",
+  "title": "cdcx config",
+  "description": "API credentials and profile configuration (~/.config/cdcx/config.toml)",
+  "type": "object",
+  "properties": {
+    "default": {
+      "$ref": "#/$defs/profile",
+      "description": "Default profile used when no --profile flag is given"
+    },
+    "profiles": {
+      "type": "object",
+      "description": "Named profiles, accessed via --profile <name>",
+      "additionalProperties": {
+        "$ref": "#/$defs/profile"
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "description": "API credential set for one environment",
+      "properties": {
+        "api_key": {
+          "type": "string",
+          "description": "Crypto.com Exchange API key"
+        },
+        "api_secret": {
+          "type": "string",
+          "description": "Crypto.com Exchange API secret"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["production", "uat"],
+          "description": "Target environment"
+        }
+      },
+      "required": ["api_key", "api_secret", "environment"],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

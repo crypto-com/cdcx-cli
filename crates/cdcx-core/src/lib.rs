@@ -2,6 +2,7 @@ pub mod api_client;
 pub mod auth;
 pub mod config;
 pub mod env;
+pub mod github;
 pub mod error;
 pub mod openapi;
 pub mod origin;

@@ -113,7 +113,7 @@ impl SchemaRegistry {
     }
 
     /// Same as `from_fixture`, but also applies the real production schema
-    /// overlays (schemas/*.toml). Used by tests that need to exercise the
+    /// overlays (schemas/apis/*.toml). Used by tests that need to exercise the
     /// fixture + overlay merge path — e.g. to assert that safety-critical
     /// overlay decisions (required params, enum defaults) behave correctly.
     pub fn from_fixture_with_overlays() -> Result<Self, SchemaError> {
@@ -124,15 +124,15 @@ impl SchemaRegistry {
 
     fn load_overlays() -> Vec<OverlayGroup> {
         [
-            include_str!("../../../schemas/market.toml"),
-            include_str!("../../../schemas/account.toml"),
-            include_str!("../../../schemas/trade.toml"),
-            include_str!("../../../schemas/advanced.toml"),
-            include_str!("../../../schemas/wallet.toml"),
-            include_str!("../../../schemas/fiat.toml"),
-            include_str!("../../../schemas/staking.toml"),
-            include_str!("../../../schemas/margin.toml"),
-            include_str!("../../../schemas/history.toml"),
+            include_str!("../../../schemas/apis/market.toml"),
+            include_str!("../../../schemas/apis/account.toml"),
+            include_str!("../../../schemas/apis/trade.toml"),
+            include_str!("../../../schemas/apis/advanced.toml"),
+            include_str!("../../../schemas/apis/wallet.toml"),
+            include_str!("../../../schemas/apis/fiat.toml"),
+            include_str!("../../../schemas/apis/staking.toml"),
+            include_str!("../../../schemas/apis/margin.toml"),
+            include_str!("../../../schemas/apis/history.toml"),
         ]
         .iter()
         .map(|s| {
