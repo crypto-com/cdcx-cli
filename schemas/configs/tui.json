@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/crypto-com/cdcx-cli/refs/heads/main/schemas/configs/tui.json",
+  "title": "cdcx TUI config",
+  "description": "TUI dashboard preferences (~/.config/cdcx/tui.toml)",
+  "type": "object",
+  "properties": {
+    "theme": {
+      "type": "string",
+      "description": "Builtin theme name, or a key from the custom themes map",
+      "examples": ["terminal-pro", "cyber-midnight", "monochrome", "neon", "micky-d", "amber"]
+    },
+    "tick_rate_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 250,
+      "description": "Event loop tick rate in milliseconds"
+    },
+    "ticker_speed": {
+      "type": "string",
+      "enum": ["slow", "medium", "fast"],
+      "default": "medium",
+      "description": "Ticker tape scroll speed (slow=divisor 4, medium=2, fast=1)"
+    },
+    "default_instrument": {
+      "type": "string",
+      "description": "Instrument to select on launch",
+      "examples": ["BTC_USDT", "ETH_USDT"]
+    },
+    "watchlist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Instruments shown in the watchlist tab",
+      "examples": [["BTC_USDT", "ETH_USDT", "SOL_USDT", "CRO_USDT"]]
+    },
+    "themes": {
+      "type": "object",
+      "description": "Custom user-defined themes keyed by name",
+      "additionalProperties": {
+        "$ref": "#/$defs/customTheme"
+      },
+      "default": {}
+    }
+  },
+  "$defs": {
+    "customTheme": {
+      "type": "object",
+      "description": "Custom theme colors; unset fields inherit from the base theme (terminal-pro)",
+      "properties": {
+        "bg":            { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Background color" },
+        "fg":            { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Foreground / text color" },
+        "accent":        { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Accent color" },
+        "positive":      { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Price-up / positive color" },
+        "negative":      { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Price-down / negative color" },
+        "border":        { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Border color" },
+        "header":        { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Header text color" },
+        "selected_bg":   { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Selected row background" },
+        "selected_fg":   { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Selected row foreground" },
+        "muted":         { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Muted / secondary text color" },
+        "volume":        { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Volume bar color" },
+        "status_bar_bg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Status bar background" },
+        "status_bar_fg": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Status bar foreground" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

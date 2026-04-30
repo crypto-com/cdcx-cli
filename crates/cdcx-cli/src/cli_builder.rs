@@ -395,7 +395,7 @@ mod tests {
         assert!(sub_names.contains(&"mcp".to_string()));
     }
 
-    /// Regression: `schemas/trade.toml` used to carry `default = "MARKET"` for
+    /// Regression: `schemas/apis/trade.toml` used to carry `default = "MARKET"` for
     /// the `type` param, which silently turned `cdcx trade order BUY INST QTY
     /// --price P` into a MARKET order with an ignored price field. This test
     /// pins the fix: without `--type`, the CLI must reject the command; with

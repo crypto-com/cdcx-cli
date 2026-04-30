@@ -3,16 +3,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 fn releases_api_url() -> String {
-    let repo = env!("CARGO_PKG_REPOSITORY");
-    let owner_repo = repo.strip_prefix("https://github.com/").unwrap();
-    format!(
-        "https://api.github.com/repos/{}/releases/latest",
-        owner_repo
-    )
+    crate::github::api("releases/latest")
 }
 
 fn releases_html_url() -> String {
-    format!("{}/releases/latest", env!("CARGO_PKG_REPOSITORY"))
+    crate::github::html("releases/latest")
 }
 
 pub struct UpdateChecker {

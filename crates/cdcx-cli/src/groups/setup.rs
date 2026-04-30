@@ -322,8 +322,10 @@ pub async fn run_setup() -> Result<(), CdcxError> {
             }
         };
 
-        toml::to_string_pretty(&config_file)
-            .map_err(|e| CdcxError::Config(format!("Failed to serialize config: {}", e)))?
+        let body = toml::to_string_pretty(&config_file)
+            .map_err(|e| CdcxError::Config(format!("Failed to serialize config: {}", e)))?;
+        let schema_url = cdcx_core::github::raw("main", "schemas/configs/config.json");
+        format!("#:schema {}\n\n{}", schema_url, body)
     };
 
     // Ensure directory exists with owner-only permissions

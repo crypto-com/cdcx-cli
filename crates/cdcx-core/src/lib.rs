@@ -3,6 +3,7 @@ pub mod auth;
 pub mod config;
 pub mod env;
 pub mod error;
+pub mod github;
 pub mod openapi;
 pub mod origin;
 pub mod output;
