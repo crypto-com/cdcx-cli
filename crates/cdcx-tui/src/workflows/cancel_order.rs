@@ -48,7 +48,9 @@ impl Workflow for CancelOrderWorkflow {
                 }
             }
             Step::Submitting => {
-                // App.on_data() will close the workflow when response arrives
+                // App.on_data() closes the workflow when the REST response arrives.
+                // Esc is already handled at the top of the function as a safety net
+                // in case the response is delayed or never delivered.
             }
         }
         WorkflowResult::Continue

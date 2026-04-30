@@ -648,7 +648,10 @@ impl App {
                     if code == 0 {
                         self.state
                             .toast("Orders cancelled", crate::state::ToastStyle::Success);
-                    } else {
+                    } else if code != -1 {
+                        // code == -1 is the synthetic sentinel from lib.rs for
+                        // transport-level failures — it already toasts the raw
+                        // error, so we only toast here for server-side rejections.
                         let message = data
                             .get("data")
                             .and_then(|d| d.get("message"))
@@ -1291,5 +1294,58 @@ mod tests {
             assert_eq!(cols_b[3], cols_a[3], "high should not change");
             assert_eq!(cols_b[4], cols_a[4], "low should not change");
         }
+    }
+
+    /// Regression: cancel-order modal used to hang forever when the REST call
+    /// failed at the transport layer (e.g. 401 NO_TRADING_RIGHT). Exercises the
+    /// full pipeline — the same `handle_rest_response` the main loop calls —
+    /// so removing the synthesis step in lib.rs breaks this test.
+    #[test]
+    fn test_cancel_workflow_closes_on_transport_error() {
+        let mut app = make_app();
+        app.workflow = Some(Box::new(CancelOrderWorkflow::new("BTC_USDT".into())));
+        app.mode = Mode::Workflow;
+
+        // Drive the real handler with the channel output shape lib.rs receives.
+        crate::handle_rest_response(
+            &mut app,
+            "private/cancel-all-orders".into(),
+            Err("401 NO_TRADING_RIGHT".into()),
+        );
+
+        assert_eq!(
+            app.mode,
+            Mode::Normal,
+            "transport error must release the workflow"
+        );
+        assert!(app.workflow.is_none(), "modal must be dismissed");
+        // Toast for the raw error must still appear (set by the handler).
+        assert!(
+            app.state.toast.is_some(),
+            "user must see the transport-error toast"
+        );
+    }
+
+    /// A server-side rejection (API returns Ok with non-zero code) should
+    /// also close the cancel modal, surface a toast, and leave Normal mode.
+    /// Drives through `handle_rest_response` with the real Ok channel shape.
+    #[test]
+    fn test_cancel_workflow_closes_on_server_rejection() {
+        let mut app = make_app();
+        app.workflow = Some(Box::new(CancelOrderWorkflow::new("BTC_USDT".into())));
+        app.mode = Mode::Workflow;
+
+        crate::handle_rest_response(
+            &mut app,
+            "private/cancel-all-orders".into(),
+            Ok(serde_json::json!({ "data": { "code": 40001, "message": "rejected" } })),
+        );
+
+        assert_eq!(app.mode, Mode::Normal);
+        assert!(app.workflow.is_none());
+        assert!(
+            app.state.toast.is_some(),
+            "a rejection toast should be shown"
+        );
     }
 }
