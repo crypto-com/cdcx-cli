@@ -98,17 +98,15 @@ impl HistoryTab {
                 .trade_history
                 .iter()
                 .rev()
-                .map(|t| {
-                    HistoryOrder {
-                        instrument: t.instrument_name.clone(),
-                        side: format!("{:?}", t.side).to_uppercase(),
-                        order_type: "MARKET".into(),
-                        price: format_price(t.price),
-                        quantity: t.quantity,
-                        status: "FILLED".into(),
-                        time: t.timestamp.chars().take(19).collect(),
-                        create_time_ns: 0,
-                    }
+                .map(|t| HistoryOrder {
+                    instrument: t.instrument_name.clone(),
+                    side: format!("{:?}", t.side).to_uppercase(),
+                    order_type: "MARKET".into(),
+                    price: format_price(t.price),
+                    quantity: t.quantity,
+                    status: "FILLED".into(),
+                    time: t.timestamp.chars().take(19).collect(),
+                    create_time_ns: 0,
                 })
                 .collect();
             self.loaded = true;
@@ -168,8 +166,7 @@ impl Tab for HistoryTab {
             }
             KeyCode::Enter => {
                 if let Some(order) = self.orders.get(self.selected) {
-                    state.pending_navigation =
-                        Some((TabKind::Market, order.instrument.clone()));
+                    state.pending_navigation = Some((TabKind::Market, order.instrument.clone()));
                 }
                 true
             }
@@ -461,8 +458,7 @@ impl Tab for HistoryTab {
             if data_row < self.orders.len() {
                 self.selected = data_row;
                 if let Some(order) = self.orders.get(self.selected) {
-                    state.pending_navigation =
-                        Some((TabKind::Market, order.instrument.clone()));
+                    state.pending_navigation = Some((TabKind::Market, order.instrument.clone()));
                 }
                 return true;
             }

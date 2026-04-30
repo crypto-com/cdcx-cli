@@ -182,8 +182,7 @@ impl Tab for OrdersTab {
             }
             KeyCode::Enter => {
                 if let Some(order) = self.orders.get(self.selected) {
-                    state.pending_navigation =
-                        Some((TabKind::Market, order.instrument.clone()));
+                    state.pending_navigation = Some((TabKind::Market, order.instrument.clone()));
                 }
                 true
             }
@@ -384,8 +383,10 @@ impl Tab for OrdersTab {
             let data_row = (row - 1) as usize;
             if data_row < self.orders.len() {
                 self.selected = data_row;
-                state.pending_navigation =
-                    Some((TabKind::Market, self.orders[self.selected].instrument.clone()));
+                state.pending_navigation = Some((
+                    TabKind::Market,
+                    self.orders[self.selected].instrument.clone(),
+                ));
                 return true;
             }
         }

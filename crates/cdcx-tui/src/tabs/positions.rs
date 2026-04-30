@@ -72,7 +72,8 @@ impl PositionsTab {
                     }
                 })
                 .collect();
-            self.positions.sort_by(|a, b| a.instrument.cmp(&b.instrument));
+            self.positions
+                .sort_by(|a, b| a.instrument.cmp(&b.instrument));
             self.loaded = true;
         }
     }
@@ -95,7 +96,8 @@ impl PositionsTab {
             .iter()
             .filter_map(|item| parse_position_record(item, state))
             .collect();
-        self.positions.sort_by(|a, b| a.instrument.cmp(&b.instrument));
+        self.positions
+            .sort_by(|a, b| a.instrument.cmp(&b.instrument));
         // Immediately apply the same ticker-driven recompute the tick path uses,
         // otherwise the WS payload's zero-initialised mark/pnl flashes on screen
         // for one frame before the next tick fills it in.
