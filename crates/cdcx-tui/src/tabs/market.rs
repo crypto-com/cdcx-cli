@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::format::{format_compact, format_price};
 use crate::state::{AppState, RestRequest};
-use crate::tabs::{DataEvent, Tab};
+use crate::tabs::{DataEvent, Tab, TabKind};
 use crate::widgets::candlestick::{
     draw_candlestick, draw_compare_charts, fill_candle_gaps, Candle,
 };
@@ -96,6 +96,7 @@ pub struct MarketTab {
     compare_instruments: Vec<String>,
     compare_selected: usize,
     picker: Option<InstrumentPicker>,
+    navigated_from: Option<TabKind>,
 }
 
 impl Default for MarketTab {
@@ -127,6 +128,7 @@ impl MarketTab {
             compare_instruments: vec![],
             compare_selected: 0,
             picker: None,
+            navigated_from: None,
         }
     }
 
@@ -138,6 +140,7 @@ impl MarketTab {
 
     fn enter_detail(&mut self, state: &AppState) {
         if let Some(inst) = self.selected_instrument().map(String::from) {
+            self.navigated_from = None;
             self.enter_detail_for(&inst, state);
         }
     }
@@ -270,8 +273,17 @@ impl MarketTab {
     }
 
     fn visible_rows(&self, area_height: u16) -> usize {
-        // Subtract header line (1) + table header (1) + separator (1) + footer (1) = 4
+        // When called from on_key with terminal_height - 4:
+        //   terminal_height - 4 (ticker+tab_bar) - 4 (header+table_hdr+footer+status) = data rows
+        // When called from draw with table_area.height:
+        //   callers must subtract 1 for the table header themselves or use
+        //   visible_rows_in_table() instead.
         (area_height as usize).saturating_sub(4)
+    }
+
+    fn visible_rows_in_table(&self, table_area_height: u16) -> usize {
+        // table_area only contains the Table widget: 1 header row + N data rows
+        (table_area_height as usize).saturating_sub(1)
     }
 
     /// Rebuild categories from instrument type data. Called after instruments are loaded.
@@ -376,6 +388,9 @@ impl Tab for MarketTab {
                 return match key.code {
                     KeyCode::Esc => {
                         self.view_mode = ViewMode::Table;
+                        if let Some(origin) = self.navigated_from.take() {
+                            state.pending_return_tab = Some(origin);
+                        }
                         true
                     }
                     KeyCode::Char('k') => {
@@ -896,7 +911,7 @@ impl Tab for MarketTab {
             ));
         } else {
             let total = self.filtered_instruments.len();
-            let vis = self.visible_rows(table_area.height);
+            let vis = self.visible_rows_in_table(table_area.height);
             let end = (self.scroll_offset + vis).min(total);
             if total > 0 {
                 spans.push(Span::styled(
@@ -953,7 +968,7 @@ impl Tab for MarketTab {
             widths_base
         };
 
-        let vis = self.visible_rows(table_area.height);
+        let vis = self.visible_rows_in_table(table_area.height);
         let end = (self.scroll_offset + vis).min(self.filtered_instruments.len());
         let visible_slice = &self.filtered_instruments[self.scroll_offset..end];
 
@@ -1126,13 +1141,18 @@ impl Tab for MarketTab {
             .map(|s| s.as_str())
     }
 
-    fn on_click(&mut self, row: u16, _col: u16, _state: &mut AppState) -> bool {
+    fn on_click(&mut self, row: u16, _col: u16, state: &mut AppState) -> bool {
         if self.view_mode != ViewMode::Table {
             return false;
         }
         // Content area layout: row 0 = category header, row 1 = table header, row 2+ = data
         if row >= 2 {
-            let table_row = (row - 2) as usize + self.scroll_offset;
+            let visual_row = (row - 2) as usize;
+            let vis = self.visible_rows(state.terminal_size.1.saturating_sub(4));
+            if visual_row >= vis {
+                return false;
+            }
+            let table_row = visual_row + self.scroll_offset;
             if table_row < self.filtered_instruments.len() {
                 self.selected = table_row;
                 return true;
@@ -1146,7 +1166,12 @@ impl Tab for MarketTab {
             return false;
         }
         if row >= 2 {
-            let table_row = (row - 2) as usize + self.scroll_offset;
+            let visual_row = (row - 2) as usize;
+            let vis = self.visible_rows(state.terminal_size.1.saturating_sub(4));
+            if visual_row >= vis {
+                return false;
+            }
+            let table_row = visual_row + self.scroll_offset;
             if table_row < self.filtered_instruments.len() {
                 self.selected = table_row;
                 self.enter_detail(state);
@@ -1181,6 +1206,7 @@ impl Tab for MarketTab {
     }
 
     fn navigate_to_instrument(&mut self, instrument: &str, state: &AppState) {
+        self.navigated_from = state.pending_return_tab;
         self.enter_detail_for(instrument, state);
     }
 }

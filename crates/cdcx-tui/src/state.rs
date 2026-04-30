@@ -122,6 +122,8 @@ pub struct AppState {
     pub volume_unit: VolumeUnit,
     /// Cross-tab navigation request: (target tab, instrument to show in detail).
     pub pending_navigation: Option<(crate::tabs::TabKind, String)>,
+    /// Return to a previous tab (e.g. Esc from detail navigated via another tab).
+    pub pending_return_tab: Option<crate::tabs::TabKind>,
     /// instrument_name → isolation_id for currently-open isolated-margin positions.
     /// Populated from `user.positions` WS channel + `private/get-positions` REST responses.
     /// Required to add to / trim an existing isolated position without triggering error 617.

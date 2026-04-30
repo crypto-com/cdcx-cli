@@ -7,9 +7,24 @@ use ratatui::Frame;
 
 use crate::format::format_price;
 use crate::state::{AppState, RestRequest};
-use crate::tabs::{DataEvent, Tab};
+use crate::tabs::{DataEvent, Tab, TabKind};
 
-const PAGE_SIZE: usize = 50;
+const PAGE_SIZE: usize = 100;
+
+fn days_to_ymd(days_since_epoch: i64) -> (i64, u32, u32) {
+    // Civil days to Y/M/D (algorithm from http://howardhinnant.github.io/date_algorithms.html)
+    let z = days_since_epoch + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
 
 #[derive(Debug, Clone)]
 struct HistoryOrder {
@@ -20,13 +35,19 @@ struct HistoryOrder {
     quantity: f64,
     status: String,
     time: String,
+    create_time_ns: u64,
 }
 
 pub struct HistoryTab {
     orders: Vec<HistoryOrder>,
     loaded: bool,
+    requesting: bool,
     selected: usize,
-    page: usize,
+    scroll_offset: usize,
+    /// Stack of end_time cursors for previous pages (enables going back).
+    cursor_stack: Vec<u64>,
+    /// The end_time cursor for the next page (earliest create_time of current batch).
+    next_cursor: Option<u64>,
     has_next: bool,
 }
 
@@ -41,20 +62,33 @@ impl HistoryTab {
         Self {
             orders: vec![],
             loaded: false,
+            requesting: false,
             selected: 0,
-            page: 0,
+            scroll_offset: 0,
+            cursor_stack: vec![],
+            next_cursor: None,
             has_next: true,
         }
     }
 
-    fn request_data(&self, state: &AppState) {
-        if state.authenticated && !state.paper_mode {
+    fn request_data(&mut self, state: &AppState) {
+        if state.authenticated && !state.paper_mode && !self.requesting {
+            self.requesting = true;
+            let mut params = serde_json::json!({"limit": PAGE_SIZE});
+            if let Some(cursor) = self.next_cursor {
+                params["end_time"] = serde_json::json!(cursor);
+            }
             let _ = state.rest_tx.send(RestRequest {
                 method: "private/get-order-history".into(),
-                params: serde_json::json!({"page_size": PAGE_SIZE.to_string(), "page": self.page.to_string()}),
+                params,
                 is_private: true,
             });
         }
+    }
+
+    fn visible_rows(&self, terminal_height: u16) -> usize {
+        // terminal_height - ticker(1) - tab_bar(3) - status(1) - footer(1) - table_header(1) = data rows
+        (terminal_height as usize).saturating_sub(7)
     }
 
     fn load_paper_history(&mut self, state: &AppState) {
@@ -68,11 +102,12 @@ impl HistoryTab {
                     HistoryOrder {
                         instrument: t.instrument_name.clone(),
                         side: format!("{:?}", t.side).to_uppercase(),
-                        order_type: "MARKET".into(), // paper trades are always filled
+                        order_type: "MARKET".into(),
                         price: format_price(t.price),
                         quantity: t.quantity,
                         status: "FILLED".into(),
-                        time: t.timestamp.chars().take(19).collect(), // trim to datetime
+                        time: t.timestamp.chars().take(19).collect(),
+                        create_time_ns: 0,
                     }
                 })
                 .collect();
@@ -87,31 +122,60 @@ impl Tab for HistoryTab {
             KeyCode::Up => {
                 if self.selected > 0 {
                     self.selected -= 1;
+                    if self.selected < self.scroll_offset {
+                        self.scroll_offset = self.selected;
+                    }
                 }
                 true
             }
             KeyCode::Down => {
                 if self.selected < self.orders.len().saturating_sub(1) {
                     self.selected += 1;
+                    let vis = self.visible_rows(state.terminal_size.1);
+                    if self.selected >= self.scroll_offset + vis {
+                        self.scroll_offset = self.selected + 1 - vis;
+                    }
                 }
                 true
             }
-            KeyCode::Right if !state.paper_mode && self.has_next => {
-                self.page += 1;
+            KeyCode::Right if !state.paper_mode && self.loaded && self.has_next => {
+                // Push current cursor so Left can restore it
+                if let Some(first_ts) = self.orders.first().map(|o| o.create_time_ns) {
+                    self.cursor_stack.push(first_ts);
+                }
                 self.loaded = false;
                 self.selected = 0;
+                self.scroll_offset = 0;
                 self.request_data(state);
                 true
             }
-            KeyCode::Left if !state.paper_mode && self.page > 0 => {
-                self.page -= 1;
+            KeyCode::Left if !state.paper_mode && self.loaded && !self.cursor_stack.is_empty() => {
+                // Pop previous page's start_time and use it as the new end_time + 1ns
+                // to re-fetch that page. If stack is empty after pop, fetch first page.
+                let prev_cursor = self.cursor_stack.pop();
+                // The cursor we popped was the first (newest) item's create_time of that page.
+                // To re-fetch that page, we need end_time > that timestamp (or no end_time for first page).
+                if self.cursor_stack.is_empty() {
+                    self.next_cursor = None;
+                } else {
+                    self.next_cursor = prev_cursor;
+                }
                 self.loaded = false;
                 self.selected = 0;
+                self.scroll_offset = 0;
                 self.request_data(state);
+                true
+            }
+            KeyCode::Enter => {
+                if let Some(order) = self.orders.get(self.selected) {
+                    state.pending_navigation =
+                        Some((TabKind::Market, order.instrument.clone()));
+                }
                 true
             }
             KeyCode::Char('r') => {
                 self.loaded = false;
+                self.requesting = false;
                 true
             }
             _ => false,
@@ -125,6 +189,7 @@ impl Tab for HistoryTab {
         }
         match event {
             DataEvent::RestResponse { method, data } if method == "private/get-order-history" => {
+                self.requesting = false;
                 let arr_opt = data
                     .get("order_list")
                     .and_then(|d| d.as_array())
@@ -133,60 +198,88 @@ impl Tab for HistoryTab {
                     self.has_next = arr.len() >= PAGE_SIZE;
                     self.orders = arr
                         .iter()
-                        .map(|item| HistoryOrder {
-                            instrument: item
-                                .get("instrument_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            side: item
-                                .get("side")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            order_type: item
-                                .get("order_type")
-                                .or_else(|| item.get("type"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            price: format_price(
-                                item.get("avg_price")
+                        .map(|item| {
+                            let create_time_ns = item
+                                .get("create_time_ns")
+                                .and_then(|v| v.as_u64())
+                                .or_else(|| {
+                                    item.get("create_time")
+                                        .and_then(|v| v.as_u64())
+                                        .map(|ms| ms * 1_000_000)
+                                })
+                                .unwrap_or(0);
+                            HistoryOrder {
+                                instrument: item
+                                    .get("instrument_name")
                                     .and_then(|v| v.as_str())
-                                    .filter(|s| *s != "0")
-                                    .or_else(|| {
-                                        item.get("limit_price")
-                                            .and_then(|v| v.as_str())
-                                            .filter(|s| *s != "0")
-                                    })
-                                    .or_else(|| {
-                                        item.get("price")
-                                            .and_then(|v| v.as_str())
-                                            .filter(|s| *s != "0")
-                                    })
+                                    .unwrap_or("")
+                                    .to_string(),
+                                side: item
+                                    .get("side")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                order_type: item
+                                    .get("order_type")
+                                    .or_else(|| item.get("type"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                price: format_price(
+                                    item.get("avg_price")
+                                        .and_then(|v| v.as_str())
+                                        .filter(|s| *s != "0")
+                                        .or_else(|| {
+                                            item.get("limit_price")
+                                                .and_then(|v| v.as_str())
+                                                .filter(|s| *s != "0")
+                                        })
+                                        .or_else(|| {
+                                            item.get("price")
+                                                .and_then(|v| v.as_str())
+                                                .filter(|s| *s != "0")
+                                        })
+                                        .and_then(|s| s.parse().ok())
+                                        .unwrap_or(0.0),
+                                ),
+                                quantity: item
+                                    .get("quantity")
+                                    .and_then(|v| v.as_str())
                                     .and_then(|s| s.parse().ok())
                                     .unwrap_or(0.0),
-                            ),
-                            quantity: item
-                                .get("quantity")
-                                .and_then(|v| v.as_str())
-                                .and_then(|s| s.parse().ok())
-                                .unwrap_or(0.0),
-                            status: item
-                                .get("status")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            time: item
-                                .get("create_time")
-                                .and_then(|v| v.as_u64())
-                                .map(|ts| {
-                                    let s = ts / 1000;
-                                    format!("{:02}:{:02}", (s / 3600) % 24, (s / 60) % 60)
-                                })
-                                .unwrap_or_default(),
+                                status: item
+                                    .get("status")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                time: item
+                                    .get("create_time")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|ms| {
+                                        let secs = (ms / 1000) as i64;
+                                        let days = secs / 86400;
+                                        let time_of_day = secs % 86400;
+                                        let hours = time_of_day / 3600;
+                                        let minutes = (time_of_day % 3600) / 60;
+                                        // Days since Unix epoch to Y-M-D
+                                        let (y, m, d) = days_to_ymd(days);
+                                        format!(
+                                            "{:04}-{:02}-{:02} {:02}:{:02}",
+                                            y, m, d, hours, minutes
+                                        )
+                                    })
+                                    .unwrap_or_default(),
+                                create_time_ns,
+                            }
                         })
                         .collect();
+                    // Use the earliest create_time as cursor for next page
+                    self.next_cursor = self
+                        .orders
+                        .iter()
+                        .map(|o| o.create_time_ns)
+                        .filter(|t| *t > 0)
+                        .min();
                     self.loaded = true;
                 }
             }
@@ -225,8 +318,8 @@ impl Tab for HistoryTab {
             frame.render_widget(
                 Paragraph::new(if state.paper_mode {
                     "No paper trades yet."
-                } else if self.page > 0 {
-                    "No more orders on this page."
+                } else if !self.cursor_stack.is_empty() {
+                    "No more orders."
                 } else {
                     "No order history."
                 })
@@ -255,15 +348,19 @@ impl Tab for HistoryTab {
                 Constraint::Length(14),
                 Constraint::Length(12),
                 Constraint::Length(16),
-                Constraint::Length(10),
+                Constraint::Length(16),
             ];
 
-            let rows: Vec<Row> = self
-                .orders
+            let vis = (table_area.height as usize).saturating_sub(1);
+            let end = (self.scroll_offset + vis).min(self.orders.len());
+            let visible_slice = &self.orders[self.scroll_offset..end];
+
+            let rows: Vec<Row> = visible_slice
                 .iter()
                 .enumerate()
-                .map(|(i, o)| {
-                    let is_selected = i == self.selected;
+                .map(|(vi, o)| {
+                    let abs_idx = self.scroll_offset + vi;
+                    let is_selected = abs_idx == self.selected;
                     let side_color = if o.side == "BUY" {
                         state.theme.colors.positive
                     } else {
@@ -321,7 +418,7 @@ impl Tab for HistoryTab {
         let page_info = if state.paper_mode {
             format!("{} trades", self.orders.len())
         } else {
-            format!("Page {}", self.page + 1)
+            format!("Page {}", self.cursor_stack.len() + 1)
         };
         frame.render_widget(
             Paragraph::new(Line::from(vec![
@@ -346,10 +443,40 @@ impl Tab for HistoryTab {
         vec![]
     }
 
+    fn on_click(&mut self, row: u16, _col: u16, _state: &mut AppState) -> bool {
+        // Layout: row 0 = table header, row 1+ = data rows, last row = footer
+        if row >= 1 {
+            let data_row = (row - 1) as usize + self.scroll_offset;
+            if data_row < self.orders.len() {
+                self.selected = data_row;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn on_double_click(&mut self, row: u16, _col: u16, state: &mut AppState) -> bool {
+        if row >= 1 {
+            let data_row = (row - 1) as usize + self.scroll_offset;
+            if data_row < self.orders.len() {
+                self.selected = data_row;
+                if let Some(order) = self.orders.get(self.selected) {
+                    state.pending_navigation =
+                        Some((TabKind::Market, order.instrument.clone()));
+                }
+                return true;
+            }
+        }
+        false
+    }
+
     fn on_activate(&mut self) {
         self.loaded = false;
+        self.requesting = false;
         self.has_next = true;
-        self.page = 0;
+        self.cursor_stack.clear();
+        self.next_cursor = None;
         self.selected = 0;
+        self.scroll_offset = 0;
     }
 }

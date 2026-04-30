@@ -72,6 +72,7 @@ impl PositionsTab {
                     }
                 })
                 .collect();
+            self.positions.sort_by(|a, b| a.instrument.cmp(&b.instrument));
             self.loaded = true;
         }
     }
@@ -94,6 +95,7 @@ impl PositionsTab {
             .iter()
             .filter_map(|item| parse_position_record(item, state))
             .collect();
+        self.positions.sort_by(|a, b| a.instrument.cmp(&b.instrument));
         // Immediately apply the same ticker-driven recompute the tick path uses,
         // otherwise the WS payload's zero-initialised mark/pnl flashes on screen
         // for one frame before the next tick fills it in.
@@ -425,6 +427,36 @@ impl Tab for PositionsTab {
         self.positions
             .get(self.selected)
             .map(|p| p.instrument.as_str())
+    }
+
+    fn on_click(&mut self, row: u16, _col: u16, _state: &mut AppState) -> bool {
+        if self.detail_position.is_some() {
+            return false;
+        }
+        // Layout: row 0 = table header, row 1+ = data rows
+        if row >= 1 {
+            let data_row = (row - 1) as usize;
+            if data_row < self.positions.len() {
+                self.selected = data_row;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn on_double_click(&mut self, row: u16, _col: u16, _state: &mut AppState) -> bool {
+        if self.detail_position.is_some() {
+            return false;
+        }
+        if row >= 1 {
+            let data_row = (row - 1) as usize;
+            if data_row < self.positions.len() {
+                self.selected = data_row;
+                self.detail_position = Some(self.selected);
+                return true;
+            }
+        }
+        false
     }
 }
 
