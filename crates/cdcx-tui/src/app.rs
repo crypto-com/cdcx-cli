@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKi
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Clear, Row, Table, Tabs};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs};
 use ratatui::Frame;
 
 use crate::state::AppState;
@@ -36,6 +36,10 @@ pub struct App {
     pub should_quit: bool,
     pub should_update: bool,
     pub show_help: bool,
+    /// Current page index into `HELP_PAGES` — only meaningful while
+    /// `show_help` is true. Reset to 0 each time the overlay opens so a
+    /// fresh `?` always lands on the first (Global) page.
+    pub help_page: usize,
     pub show_spotlight: bool,
     pub split_view: bool,
     pub tick_count: u64,
@@ -63,6 +67,7 @@ impl App {
             should_quit: false,
             should_update: false,
             show_help: false,
+            help_page: 0,
             show_spotlight: false,
             split_view: false,
             tick_count: 0,
@@ -129,9 +134,21 @@ impl App {
             }
         }
 
-        // Help overlay — dismiss on any key
+        // Help overlay — page navigation keys cycle within the overlay,
+        // everything else dismisses. Keeps the familiar "any key closes"
+        // feel while making the new paged layout discoverable.
         if self.show_help {
-            self.show_help = false;
+            match key.code {
+                KeyCode::Left | KeyCode::Char('[') => {
+                    self.help_page = prev_help_page(self.help_page);
+                }
+                KeyCode::Right | KeyCode::Tab | KeyCode::Char(']') => {
+                    self.help_page = next_help_page(self.help_page);
+                }
+                _ => {
+                    self.show_help = false;
+                }
+            }
             return;
         }
 
@@ -209,6 +226,7 @@ impl App {
             }
             KeyCode::Char('?') => {
                 self.show_help = true;
+                self.help_page = 0;
                 return;
             }
             KeyCode::Char('i') => {
@@ -957,7 +975,7 @@ impl App {
 
         // Help overlay
         if self.show_help {
-            draw_help_overlay(frame, content_area, &self.state);
+            draw_help_overlay(frame, content_area, &self.state, self.help_page);
         }
 
         // Status bar
@@ -965,119 +983,196 @@ impl App {
     }
 }
 
-fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState) {
+/// A single page of the help overlay. Each section header becomes a page —
+/// this keeps the modal short enough to fit in any reasonable terminal
+/// without clipping (the old single-page layout was clipping Watchlist /
+/// Orders sections on ~30-row terminals).
+struct HelpPage {
+    title: &'static str,
+    sections: &'static [HelpSection],
+}
+
+struct HelpSection {
+    heading: &'static str,
+    bindings: &'static [(&'static str, &'static str)],
+}
+
+const HELP_PAGES: &[HelpPage] = &[
+    HelpPage {
+        title: "Global",
+        sections: &[HelpSection {
+            heading: "Global",
+            bindings: &[
+                ("1-6", "Switch to tab"),
+                ("Tab / Shift+Tab", "Next / previous tab"),
+                ("q", "Quit"),
+                ("?", "Toggle this help"),
+                ("v", "Toggle volume unit (USD / Notional)"),
+                ("r", "Refresh current tab"),
+                ("y", "Copy table data to clipboard (CSV)"),
+                ("!", "Toggle price alert (+1% above current)"),
+                ("i", "Instrument spotlight popup"),
+                ("\\", "Toggle split screen (table + chart)"),
+                (",", "Settings"),
+                ("Mouse scroll", "Navigate rows up/down"),
+            ],
+        }],
+    },
+    HelpPage {
+        title: "Market & Detail",
+        sections: &[
+            HelpSection {
+                heading: "Market Table",
+                bindings: &[
+                    ("\u{2190}\u{2192}", "Switch category (Spot/Perp/Futures)"),
+                    ("s / S", "Cycle sort field / reverse sort"),
+                    ("/", "Search instruments"),
+                    ("\u{2191}\u{2193}", "Navigate rows"),
+                    ("PgUp / PgDn", "Page scroll"),
+                    ("Enter", "Instrument detail (book + trades)"),
+                    ("h", "Toggle heatmap mode"),
+                    ("k", "Candlestick chart (streaming)"),
+                    ("m", "Compare charts (up to 4)"),
+                    ("p", "Toggle LIVE / PAPER mode"),
+                ],
+            },
+            HelpSection {
+                heading: "Detail View",
+                bindings: &[
+                    ("Esc", "Back to table"),
+                    ("k", "Switch to candlestick chart"),
+                    ("m", "Switch to compare view"),
+                    ("D", "Cycle order-book depth (10/50/150)"),
+                ],
+            },
+        ],
+    },
+    HelpPage {
+        title: "Chart & Watchlist",
+        sections: &[
+            HelpSection {
+                heading: "Chart / Compare",
+                bindings: &[
+                    ("Esc / k / m", "Back to table"),
+                    ("[ / ]", "Previous / next timeframe"),
+                    ("a", "Add instrument (compare, max 4)"),
+                    ("d", "Remove instrument (compare)"),
+                    ("1-4", "Select chart panel (compare)"),
+                ],
+            },
+            HelpSection {
+                heading: "Watchlist",
+                bindings: &[("a / d", "Add / remove instrument")],
+            },
+        ],
+    },
+    HelpPage {
+        title: "Trade & Orders",
+        sections: &[
+            HelpSection {
+                heading: "Orders & Trading",
+                bindings: &[
+                    ("t", "Place order (Market/Positions/Watchlist)"),
+                    ("o", "OCO order (stop-loss + take-profit)"),
+                    ("O", "OTOCO order (entry + SL + TP)"),
+                    ("c", "Cancel orders"),
+                    ("x", "Close position (Positions tab only)"),
+                ],
+            },
+            HelpSection {
+                heading: "Orders / History",
+                bindings: &[
+                    ("r", "Refresh data"),
+                    ("n / p", "Next / previous page (history)"),
+                ],
+            },
+        ],
+    },
+];
+
+/// Cycle forward through `HELP_PAGES`, wrapping from last → first.
+/// Pure helper so the page-cycle contract is unit-testable.
+fn next_help_page(current: usize) -> usize {
+    (current + 1) % HELP_PAGES.len()
+}
+
+/// Cycle backward through `HELP_PAGES`, wrapping from first → last.
+fn prev_help_page(current: usize) -> usize {
+    if current == 0 {
+        HELP_PAGES.len() - 1
+    } else {
+        current - 1
+    }
+}
+
+fn draw_help_overlay(frame: &mut Frame, area: Rect, state: &AppState, page_idx: usize) {
     let width = 58u16;
-    let height = 33u16;
+    let height = 26u16;
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     let modal = Rect::new(x, y, width.min(area.width), height.min(area.height));
 
     frame.render_widget(Clear, modal);
 
+    let page = &HELP_PAGES[page_idx.min(HELP_PAGES.len() - 1)];
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(state.theme.colors.accent))
-        .title(" Keyboard Shortcuts ");
+        .title(format!(
+            " Keyboard Shortcuts — {} ({}/{}) ",
+            page.title,
+            page_idx + 1,
+            HELP_PAGES.len()
+        ));
     let inner = block.inner(modal);
     frame.render_widget(block, modal);
 
-    let bindings: Vec<(&str, &str)> = vec![
-        ("Global", ""),
-        ("1-6", "Switch to tab"),
-        ("Tab / Shift+Tab", "Next / previous tab"),
-        ("q", "Quit"),
-        ("?", "Toggle this help"),
-        ("v", "Toggle volume unit (USD / Notional)"),
-        ("r", "Refresh current tab"),
-        ("y", "Copy table data to clipboard (CSV)"),
-        ("!", "Toggle price alert (+1% above current)"),
-        ("i", "Instrument spotlight popup"),
-        ("\\", "Toggle split screen (table + chart)"),
-        (",", "Settings"),
-        ("Mouse scroll", "Navigate rows up/down"),
-        ("", ""),
-        ("Market Table", ""),
-        ("\u{2190}\u{2192}", "Switch category (Spot/Perp/Futures)"),
-        ("s / S", "Cycle sort field / reverse sort"),
-        ("/", "Search instruments"),
-        ("\u{2191}\u{2193}", "Navigate rows"),
-        ("PgUp / PgDn", "Page scroll"),
-        ("Enter", "Instrument detail (book + trades)"),
-        ("h", "Toggle heatmap mode"),
-        ("k", "Candlestick chart (streaming)"),
-        ("m", "Compare charts (up to 4)"),
-        ("t", "Place order (Market/Positions/Watchlist)"),
-        ("o", "OCO order (stop-loss + take-profit)"),
-        ("O", "OTOCO order (entry + SL + TP)"),
-        ("c", "Cancel orders"),
-        ("x", "Close position (Positions tab only)"),
-        ("p", "Toggle LIVE / PAPER mode"),
-        ("", ""),
-        ("Detail View", ""),
-        ("Esc", "Back to table"),
-        ("k", "Switch to candlestick chart"),
-        ("m", "Switch to compare view"),
-        ("", ""),
-        ("Chart / Compare", ""),
-        ("Esc / k / m", "Back to table"),
-        ("[ / ]", "Previous / next timeframe"),
-        ("a", "Add instrument (compare, max 4)"),
-        ("d", "Remove instrument (compare)"),
-        ("1-4", "Select chart panel (compare)"),
-        ("", ""),
-        ("Watchlist", ""),
-        ("a / d", "Add / remove instrument"),
-        ("", ""),
-        ("Orders / History", ""),
-        ("r", "Refresh data"),
-        ("n / p", "Next / previous page (history)"),
-        ("", ""),
-        ("Press any key to close", ""),
-    ];
+    // Split inner into body (bindings) + footer (navigation hint).
+    let [body_area, footer_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(inner);
 
-    let rows: Vec<Row> = bindings
-        .iter()
-        .map(|(key, desc)| {
-            if desc.is_empty() && !key.is_empty() {
-                // Section header
-                Row::new(vec![
-                    Cell::from(Line::from(Span::styled(
-                        *key,
-                        Style::default()
-                            .fg(state.theme.colors.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ))),
-                    Cell::from(""),
-                ])
-            } else if key.is_empty() && desc.is_empty() {
-                // Blank row
-                Row::new(vec![Cell::from(""), Cell::from("")])
-            } else if key.is_empty() {
-                // Footer text
-                Row::new(vec![
-                    Cell::from(Line::from(Span::styled(
-                        *desc,
-                        Style::default().fg(state.theme.colors.muted),
-                    ))),
-                    Cell::from(""),
-                ])
-            } else {
-                Row::new(vec![
-                    Cell::from(Line::from(Span::styled(
-                        format!("  {}", key),
-                        Style::default().fg(state.theme.colors.header),
-                    ))),
-                    Cell::from(Line::from(Span::styled(
-                        *desc,
-                        Style::default().fg(state.theme.colors.fg),
-                    ))),
-                ])
-            }
-        })
-        .collect();
+    let mut rows: Vec<Row> = Vec::new();
+    for (i, section) in page.sections.iter().enumerate() {
+        if i > 0 {
+            rows.push(Row::new(vec![Cell::from(""), Cell::from("")]));
+        }
+        rows.push(Row::new(vec![
+            Cell::from(Line::from(Span::styled(
+                section.heading,
+                Style::default()
+                    .fg(state.theme.colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            Cell::from(""),
+        ]));
+        for (key, desc) in section.bindings {
+            rows.push(Row::new(vec![
+                Cell::from(Line::from(Span::styled(
+                    format!("  {}", key),
+                    Style::default().fg(state.theme.colors.header),
+                ))),
+                Cell::from(Line::from(Span::styled(
+                    *desc,
+                    Style::default().fg(state.theme.colors.fg),
+                ))),
+            ]));
+        }
+    }
 
     let table = Table::new(rows, [Constraint::Length(20), Constraint::Fill(1)]);
-    frame.render_widget(table, inner);
+    frame.render_widget(table, body_area);
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            format!(
+                "\u{2190} \u{2192} / Tab: page {}/{}   Esc / any other key: close",
+                page_idx + 1,
+                HELP_PAGES.len()
+            ),
+            Style::default().fg(state.theme.colors.muted),
+        ))),
+        footer_area,
+    );
 }
 
 fn copy_to_clipboard(text: &str) -> bool {
@@ -1374,5 +1469,66 @@ mod tests {
             app.state.toast.is_some(),
             "a rejection toast should be shown"
         );
+    }
+
+    // ---- Help overlay paging (side task: panel too cramped at one page) ----
+
+    /// Forward cycle must visit each page in order and wrap back to 0.
+    /// If this test flips, either a page was dropped, the modulus is wrong,
+    /// or next/prev got swapped.
+    #[test]
+    fn help_overlay_next_page_cycles_forward_and_wraps() {
+        assert!(
+            HELP_PAGES.len() >= 2,
+            "paging only makes sense with multiple pages"
+        );
+        let mut page = 0;
+        for _ in 0..HELP_PAGES.len() {
+            page = next_help_page(page);
+        }
+        assert_eq!(page, 0, "full cycle forward must return to page 0");
+    }
+
+    /// Backward from page 0 must land on the last page, not underflow.
+    #[test]
+    fn help_overlay_prev_page_wraps_from_first_to_last() {
+        assert_eq!(prev_help_page(0), HELP_PAGES.len() - 1);
+    }
+
+    /// Opening the overlay fresh must land on page 0 regardless of prior
+    /// `help_page` state — prevents confusion where a second `?` press lands
+    /// deep in the middle of the pages.
+    #[test]
+    fn opening_help_resets_to_first_page() {
+        let mut app = make_app();
+        app.help_page = 2;
+        app.show_help = false;
+        app.on_key(key('?'));
+        assert!(app.show_help);
+        assert_eq!(app.help_page, 0);
+    }
+
+    /// Right arrow advances the page without dismissing the overlay. This
+    /// is the entire point of the feature — if the overlay closed on every
+    /// keypress, pagination would be impossible.
+    #[test]
+    fn right_arrow_inside_help_advances_page_without_closing() {
+        let mut app = make_app();
+        app.show_help = true;
+        app.help_page = 0;
+        app.on_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+        assert!(app.show_help, "right arrow must not dismiss help");
+        assert_eq!(app.help_page, 1);
+    }
+
+    /// Non-navigation keys (Enter/Esc/letters) must still dismiss — the
+    /// "any key closes" contract is preserved for everything that isn't
+    /// an explicit page-nav key.
+    #[test]
+    fn unrelated_key_inside_help_still_dismisses() {
+        let mut app = make_app();
+        app.show_help = true;
+        app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.show_help, "Esc must dismiss help");
     }
 }
