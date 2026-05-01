@@ -20,6 +20,14 @@ const RECENT_TRADES_CAP: usize = 100;
 /// arrives and the cap is reached.
 const MAX_CANDLE_INSTRUMENTS: usize = 20;
 
+/// Order-book depth presets the user cycles through with `D` in Detail view.
+/// Values come from the Crypto.com Exchange WS `book.{instrument}.{depth}`
+/// channel spec — 10/50/150 are the documented buckets. Using anything else
+/// (e.g. 20) works for the REST snapshot but leaves the WS stream silent
+/// because the subscription would be invalid.
+const BOOK_DEPTH_PRESETS: &[usize] = &[10, 50, 150];
+const DEFAULT_BOOK_DEPTH: usize = 50;
+
 use crate::format::{format_compact, format_price};
 use crate::state::{AppState, RestRequest};
 use crate::tabs::{DataEvent, Tab, TabKind};
@@ -98,6 +106,9 @@ pub struct MarketTab {
     view_mode: ViewMode,
     detail_instrument: String,
     book_data: Option<serde_json::Value>,
+    /// Current depth preset for the order-book REST fetch + WS subscription.
+    /// Cycled with `D` on Detail view. Session-scoped — no tui.toml round-trip.
+    book_depth: usize,
     /// Rolling buffer of recent trades, newest at the front. Seeded from the
     /// REST `public/get-trades` response, then updated by streaming batches.
     recent_trades: VecDeque<serde_json::Value>,
@@ -138,6 +149,7 @@ impl MarketTab {
             view_mode: ViewMode::Table,
             detail_instrument: String::new(),
             book_data: None,
+            book_depth: DEFAULT_BOOK_DEPTH,
             recent_trades: VecDeque::with_capacity(RECENT_TRADES_CAP),
             candle_data: None,
             candles: HashMap::new(),
@@ -172,7 +184,10 @@ impl MarketTab {
         self.recent_trades.clear();
         let _ = state.rest_tx.send(RestRequest {
             method: "public/get-book".into(),
-            params: serde_json::json!({"instrument_name": self.detail_instrument, "depth": "20"}),
+            params: serde_json::json!({
+                "instrument_name": self.detail_instrument,
+                "depth": self.book_depth.to_string(),
+            }),
             is_private: false,
         });
         let _ = state.rest_tx.send(RestRequest {
@@ -227,6 +242,43 @@ impl MarketTab {
         for inst in &self.compare_instruments.clone() {
             self.fetch_candles(inst, state);
         }
+    }
+
+    /// Pure next-preset lookup — extracted from `cycle_book_depth` so the
+    /// preset cycle can be unit-tested without constructing an `AppState`.
+    /// If `current` is not in the preset list, falls back to the first preset
+    /// (keeps the tab recoverable after a stale value).
+    fn next_book_depth(current: usize) -> usize {
+        let idx = BOOK_DEPTH_PRESETS
+            .iter()
+            .position(|&d| d == current)
+            .map(|i| (i + 1) % BOOK_DEPTH_PRESETS.len())
+            .unwrap_or(0);
+        BOOK_DEPTH_PRESETS[idx]
+    }
+
+    /// Format the WS book channel for the current detail instrument. Kept as
+    /// an explicit helper so subscription wiring is grep-visible and the
+    /// depth-suffix contract is testable without a full `AppState`.
+    fn book_channel(&self) -> String {
+        format!("book.{}.{}", self.detail_instrument, self.book_depth)
+    }
+
+    /// Advance `book_depth` to the next preset and re-fetch the snapshot.
+    /// The WS subscription string also changes as a side-effect —
+    /// `subscriptions()` rebuilds the list on the next tick and the app's
+    /// diff logic will resub the book channel to the new depth suffix.
+    fn cycle_book_depth(&mut self, state: &AppState) {
+        self.book_depth = Self::next_book_depth(self.book_depth);
+        self.book_data = None;
+        let _ = state.rest_tx.send(RestRequest {
+            method: "public/get-book".into(),
+            params: serde_json::json!({
+                "instrument_name": self.detail_instrument,
+                "depth": self.book_depth.to_string(),
+            }),
+            is_private: false,
+        });
     }
 
     fn cycle_timeframe(&mut self, direction: i32, state: &AppState) {
@@ -467,6 +519,10 @@ impl Tab for MarketTab {
                     }
                     KeyCode::Char('m') => {
                         self.enter_compare(state);
+                        true
+                    }
+                    KeyCode::Char('D') => {
+                        self.cycle_book_depth(state);
                         true
                     }
                     _ => false,
@@ -846,6 +902,7 @@ impl Tab for MarketTab {
                     &self.detail_instrument,
                     state,
                     &self.book_data,
+                    self.book_depth,
                     &trades,
                 );
                 return;
@@ -1194,7 +1251,10 @@ impl Tab for MarketTab {
         match self.view_mode {
             ViewMode::Detail => {
                 // Live order book updates
-                subs.push(format!("book.{}", self.detail_instrument));
+                // `book.{instrument}` (no depth suffix) is being deprecated
+                // by the exchange — the WS docs mandate
+                // `book.{instrument}.{depth}` with depth ∈ {10, 50, 150}.
+                subs.push(self.book_channel());
                 subs.push(format!("trade.{}", self.detail_instrument));
             }
             ViewMode::Chart => {
@@ -1659,5 +1719,55 @@ mod tests {
             );
         }
         assert_eq!(tab.candles.len(), MAX_CANDLE_INSTRUMENTS);
+    }
+
+    // ---- Order-book depth preset cycle (Issue #26) ----
+
+    /// The `D` keybinding cycles through WS-valid depths in order and wraps
+    /// back to the first preset. 20 is intentionally excluded — it is a valid
+    /// REST value but the WS `book.{instrument}.{depth}` channel only accepts
+    /// 10/50/150, so letting the user land on 20 would leave the live stream
+    /// silent.
+    #[test]
+    fn next_book_depth_cycles_through_presets_in_order() {
+        assert_eq!(MarketTab::next_book_depth(10), 50);
+        assert_eq!(MarketTab::next_book_depth(50), 150);
+        assert_eq!(MarketTab::next_book_depth(150), 10, "wraps back to first");
+    }
+
+    /// Defense in depth: if `book_depth` somehow falls outside the preset
+    /// list (manual state mutation, future refactor, corrupted restore),
+    /// the next cycle must snap back to a valid preset instead of hanging
+    /// on an un-resubscribable value.
+    #[test]
+    fn next_book_depth_recovers_from_out_of_band_value() {
+        assert_eq!(
+            MarketTab::next_book_depth(20),
+            BOOK_DEPTH_PRESETS[0],
+            "unknown depth must fall through to first preset"
+        );
+    }
+
+    /// The WS channel must include the depth suffix. Without it the
+    /// subscription silently targets the deprecated `book.{instrument}` path
+    /// that the exchange is retiring — live updates would stop arriving.
+    /// Exercises the real production helper, not `format!`, so a refactor
+    /// that changes the channel shape would break this test.
+    #[test]
+    fn book_channel_includes_depth_suffix() {
+        let mut tab = MarketTab::new();
+        tab.detail_instrument = "BTC_USDT".into();
+
+        tab.book_depth = 50;
+        assert_eq!(tab.book_channel(), "book.BTC_USDT.50");
+
+        tab.book_depth = 150;
+        assert_eq!(tab.book_channel(), "book.BTC_USDT.150");
+
+        // Regression guard: the deprecated no-suffix form must never appear.
+        assert_ne!(
+            tab.book_channel(),
+            format!("book.{}", tab.detail_instrument)
+        );
     }
 }
