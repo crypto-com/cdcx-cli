@@ -6,7 +6,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+
+/// Maximum number of recent trades retained for the detail-view panel.
+/// Sized above any realistic terminal height so the panel never visibly
+/// truncates from this cap — the render path re-clips to visible rows.
+const RECENT_TRADES_CAP: usize = 100;
 
 use crate::format::{format_compact, format_price};
 use crate::state::{AppState, RestRequest};
@@ -86,7 +91,9 @@ pub struct MarketTab {
     view_mode: ViewMode,
     detail_instrument: String,
     book_data: Option<serde_json::Value>,
-    trades_data: Option<serde_json::Value>,
+    /// Rolling buffer of recent trades, newest at the front. Seeded from the
+    /// REST `public/get-trades` response, then updated by streaming batches.
+    recent_trades: VecDeque<serde_json::Value>,
     candle_data: Option<serde_json::Value>,
     // Streaming candle storage per instrument
     candles: HashMap<String, Vec<Candle>>,
@@ -119,7 +126,7 @@ impl MarketTab {
             view_mode: ViewMode::Table,
             detail_instrument: String::new(),
             book_data: None,
-            trades_data: None,
+            recent_trades: VecDeque::with_capacity(RECENT_TRADES_CAP),
             candle_data: None,
             candles: HashMap::new(),
             timeframe: "1h".into(),
@@ -147,7 +154,7 @@ impl MarketTab {
         self.detail_instrument = instrument.to_string();
         self.view_mode = ViewMode::Detail;
         self.book_data = None;
-        self.trades_data = None;
+        self.recent_trades.clear();
         let _ = state.rest_tx.send(RestRequest {
             method: "public/get-book".into(),
             params: serde_json::json!({"instrument_name": self.detail_instrument, "depth": "20"}),
@@ -158,6 +165,28 @@ impl MarketTab {
             params: serde_json::json!({"instrument_name": self.detail_instrument}),
             is_private: false,
         });
+    }
+
+    /// Replace the recent-trades buffer with a fresh REST snapshot. The
+    /// Exchange `public/get-trades` endpoint returns trades newest-first, so
+    /// we copy in order and truncate to the cap.
+    fn seed_recent_trades(&mut self, arr: &[serde_json::Value]) {
+        self.recent_trades.clear();
+        for trade in arr.iter().take(RECENT_TRADES_CAP) {
+            self.recent_trades.push_back(trade.clone());
+        }
+    }
+
+    /// Prepend a streaming trade batch to the buffer. Iterating in reverse so
+    /// the newest trade in the batch ends up at the front (position 0).
+    /// Truncates to RECENT_TRADES_CAP, dropping the oldest trades.
+    fn prepend_recent_trades(&mut self, arr: &[serde_json::Value]) {
+        for trade in arr.iter().rev() {
+            self.recent_trades.push_front(trade.clone());
+        }
+        while self.recent_trades.len() > RECENT_TRADES_CAP {
+            self.recent_trades.pop_back();
+        }
     }
 
     fn enter_chart(&mut self, state: &AppState) {
@@ -626,7 +655,9 @@ impl Tab for MarketTab {
                 }
                 "public/get-trades" => {
                     if !data.is_null() {
-                        self.trades_data = data.get("data").cloned();
+                        if let Some(arr) = data.get("data").and_then(|d| d.as_array()) {
+                            self.seed_recent_trades(arr);
+                        }
                     }
                     return;
                 }
@@ -674,28 +705,26 @@ impl Tab for MarketTab {
             return;
         }
 
-        // Live trade updates from WebSocket — only accept for the detail instrument
+        // Live trade updates from WebSocket — only accept for the detail instrument.
+        // WS frames deliver incremental batches (typically 1–4 trades), not full
+        // snapshots — prepend them so the panel acts as a rolling feed instead
+        // of clearing on every frame.
         if let DataEvent::TradeSnapshot(data) = event {
             if self.view_mode == ViewMode::Detail {
-                // Check instrument from trade data
-                let is_match = data
+                // Payload may be a bare array or {data: [...]}. Try both.
+                let batch = data
                     .as_array()
-                    .and_then(|arr| arr.first())
-                    .and_then(|t| t.get("i").and_then(|v| v.as_str()))
-                    .map(|i| i == self.detail_instrument)
-                    .unwrap_or(false);
+                    .or_else(|| data.get("data").and_then(|d| d.as_array()));
 
-                if is_match {
-                    self.trades_data = Some(data.clone());
-                } else if let Some(arr) = data.get("data") {
-                    let is_match = arr
-                        .as_array()
-                        .and_then(|a| a.first())
+                if let Some(arr) = batch {
+                    let instrument_matches = arr
+                        .first()
                         .and_then(|t| t.get("i").and_then(|v| v.as_str()))
                         .map(|i| i == self.detail_instrument)
                         .unwrap_or(false);
-                    if is_match {
-                        self.trades_data = Some(arr.clone());
+
+                    if instrument_matches {
+                        self.prepend_recent_trades(arr);
                     }
                 }
             }
@@ -747,13 +776,16 @@ impl Tab for MarketTab {
         // Sub-views
         match self.view_mode {
             ViewMode::Detail => {
+                // VecDeque doesn't impl AsRef<[T]>, so collect contiguous view.
+                // Buffer is capped at RECENT_TRADES_CAP (100) — cheap.
+                let trades: Vec<serde_json::Value> = self.recent_trades.iter().cloned().collect();
                 draw_detail(
                     frame,
                     area,
                     &self.detail_instrument,
                     state,
                     &self.book_data,
-                    &self.trades_data,
+                    &trades,
                 );
                 return;
             }
@@ -1348,5 +1380,123 @@ mod tests {
         assert_eq!(format_compact(892_300_000.0), "892.3M");
         assert_eq!(format_compact(445_100.0), "445.1K");
         assert_eq!(format_compact(0.0), "\u{2014}");
+    }
+
+    // ---- Recent trades rolling buffer (Issue #21) ----
+
+    fn trade(price: &str, qty: &str, side: &str) -> serde_json::Value {
+        serde_json::json!({"p": price, "q": qty, "s": side, "i": "BTC_USDT"})
+    }
+
+    /// REST seed must replace the buffer in insertion order and cap at
+    /// RECENT_TRADES_CAP. The Exchange `public/get-trades` endpoint returns
+    /// newest-first, so the first element of the input must end up at the
+    /// front of the deque.
+    #[test]
+    fn seed_recent_trades_replaces_and_caps() {
+        let mut tab = MarketTab::new();
+        tab.recent_trades.push_back(trade("stale", "1", "BUY"));
+        tab.recent_trades.push_back(trade("stale", "2", "SELL"));
+
+        let seed: Vec<serde_json::Value> = (0..150)
+            .map(|i| trade(&format!("{}", i), "1", "BUY"))
+            .collect();
+        tab.seed_recent_trades(&seed);
+
+        assert_eq!(
+            tab.recent_trades.len(),
+            RECENT_TRADES_CAP,
+            "seed must truncate to cap"
+        );
+        assert_eq!(
+            tab.recent_trades.front().and_then(|t| t.get("p")),
+            Some(&serde_json::Value::String("0".into())),
+            "newest (first) trade in input must land at front"
+        );
+        assert!(
+            !tab.recent_trades
+                .iter()
+                .any(|t| t.get("p") == Some(&serde_json::Value::String("stale".into()))),
+            "prior contents must be cleared"
+        );
+    }
+
+    /// WS streaming batches are incremental — they must prepend, not replace.
+    /// This is the core regression test for Issue #21: before the fix,
+    /// each WS frame overwrote the buffer so only the latest frame's 1–4
+    /// trades were visible.
+    #[test]
+    fn prepend_recent_trades_builds_rolling_feed() {
+        let mut tab = MarketTab::new();
+        tab.seed_recent_trades(&[
+            trade("100", "1", "BUY"),
+            trade("99", "1", "SELL"),
+            trade("98", "1", "BUY"),
+        ]);
+        assert_eq!(tab.recent_trades.len(), 3);
+
+        // First WS batch: 2 new trades.
+        tab.prepend_recent_trades(&[trade("102", "1", "BUY"), trade("101", "1", "SELL")]);
+        // Previous 3 trades must still be present (this is the bug).
+        assert_eq!(
+            tab.recent_trades.len(),
+            5,
+            "WS frames must accumulate — previous trades must not be discarded"
+        );
+
+        // Newest trade of the incoming batch must be at the front.
+        assert_eq!(
+            tab.recent_trades[0].get("p"),
+            Some(&serde_json::Value::String("102".into())),
+            "newest trade in batch must be at the front"
+        );
+        assert_eq!(
+            tab.recent_trades[1].get("p"),
+            Some(&serde_json::Value::String("101".into())),
+            "batch order preserved: index 1 = second-newest of batch"
+        );
+        // Pre-existing trades slide down.
+        assert_eq!(
+            tab.recent_trades[2].get("p"),
+            Some(&serde_json::Value::String("100".into()))
+        );
+    }
+
+    /// Buffer must never exceed RECENT_TRADES_CAP even under sustained WS
+    /// traffic — oldest trades drop off the back.
+    #[test]
+    fn prepend_recent_trades_evicts_oldest_at_cap() {
+        let mut tab = MarketTab::new();
+        let initial: Vec<serde_json::Value> = (0..RECENT_TRADES_CAP)
+            .map(|i| trade(&format!("seed-{}", i), "1", "BUY"))
+            .collect();
+        tab.seed_recent_trades(&initial);
+        assert_eq!(tab.recent_trades.len(), RECENT_TRADES_CAP);
+
+        // Push in a batch of 3 new trades — the 3 oldest must evict.
+        tab.prepend_recent_trades(&[
+            trade("new-c", "1", "BUY"),
+            trade("new-b", "1", "BUY"),
+            trade("new-a", "1", "BUY"),
+        ]);
+        assert_eq!(
+            tab.recent_trades.len(),
+            RECENT_TRADES_CAP,
+            "cap must not be exceeded"
+        );
+        assert_eq!(
+            tab.recent_trades.front().and_then(|t| t.get("p")),
+            Some(&serde_json::Value::String("new-c".into())),
+            "newest stays at front"
+        );
+        // Oldest 3 seeds gone — the back of the buffer now holds seed-0..seed-96.
+        assert_eq!(
+            tab.recent_trades.back().and_then(|t| t.get("p")),
+            Some(&serde_json::Value::String(format!(
+                "seed-{}",
+                RECENT_TRADES_CAP - 1 - 3
+            ))),
+            "oldest 3 seeds must be evicted from the back"
+        );
     }
 }
