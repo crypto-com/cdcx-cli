@@ -7,7 +7,7 @@ use ratatui::Frame;
 
 use crate::format::format_price;
 use crate::state::{AppState, RestRequest};
-use crate::tabs::{DataEvent, Tab};
+use crate::tabs::{DataEvent, Tab, TabKind};
 
 #[derive(Debug, Clone)]
 struct Order {
@@ -166,7 +166,7 @@ impl OrdersTab {
 }
 
 impl Tab for OrdersTab {
-    fn on_key(&mut self, key: KeyEvent, _state: &mut AppState) -> bool {
+    fn on_key(&mut self, key: KeyEvent, state: &mut AppState) -> bool {
         match key.code {
             KeyCode::Up => {
                 if self.selected > 0 {
@@ -177,6 +177,12 @@ impl Tab for OrdersTab {
             KeyCode::Down => {
                 if self.selected < self.orders.len().saturating_sub(1) {
                     self.selected += 1;
+                }
+                true
+            }
+            KeyCode::Enter => {
+                if let Some(order) = self.orders.get(self.selected) {
+                    state.pending_navigation = Some((TabKind::Market, order.instrument.clone()));
                 }
                 true
             }
@@ -358,5 +364,32 @@ impl Tab for OrdersTab {
         self.orders
             .get(self.selected)
             .map(|o| o.instrument.as_str())
+    }
+
+    fn on_click(&mut self, row: u16, _col: u16, _state: &mut AppState) -> bool {
+        // Layout: row 0 = table header, row 1+ = data rows
+        if row >= 1 {
+            let data_row = (row - 1) as usize;
+            if data_row < self.orders.len() {
+                self.selected = data_row;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn on_double_click(&mut self, row: u16, _col: u16, state: &mut AppState) -> bool {
+        if row >= 1 {
+            let data_row = (row - 1) as usize;
+            if data_row < self.orders.len() {
+                self.selected = data_row;
+                state.pending_navigation = Some((
+                    TabKind::Market,
+                    self.orders[self.selected].instrument.clone(),
+                ));
+                return true;
+            }
+        }
+        false
     }
 }

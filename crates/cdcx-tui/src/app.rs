@@ -363,11 +363,24 @@ impl App {
 
         // Handle cross-tab navigation requests (e.g. watchlist Enter → market detail)
         if let Some((target_tab, instrument)) = self.state.pending_navigation.take() {
+            let origin_tab = TabKind::ALL[self.active_tab];
+            // Set origin before calling navigate_to_instrument so the tab can read it
+            self.state.pending_return_tab = Some(origin_tab);
             if let Some(idx) = TabKind::ALL.iter().position(|t| *t == target_tab) {
                 self.active_tab = idx;
                 if let Some(tab) = self.tabs.get_mut(idx) {
                     tab.navigate_to_instrument(&instrument, &self.state);
                 }
+            }
+            // Clear from state — Market tab has stored it internally
+            self.state.pending_return_tab = None;
+            return;
+        }
+
+        // Handle return-to-previous-tab requests (Esc from detail navigated via another tab)
+        if let Some(return_tab) = self.state.pending_return_tab.take() {
+            if let Some(idx) = TabKind::ALL.iter().position(|t| *t == return_tab) {
+                self.active_tab = idx;
             }
             return;
         }
@@ -823,6 +836,19 @@ impl App {
             }
             _ => {}
         }
+
+        // Handle cross-tab navigation set by on_click/on_double_click
+        if let Some((target_tab, instrument)) = self.state.pending_navigation.take() {
+            let origin_tab = TabKind::ALL[self.active_tab];
+            self.state.pending_return_tab = Some(origin_tab);
+            if let Some(idx) = TabKind::ALL.iter().position(|t| *t == target_tab) {
+                self.active_tab = idx;
+                if let Some(tab) = self.tabs.get_mut(idx) {
+                    tab.navigate_to_instrument(&instrument, &self.state);
+                }
+            }
+            self.state.pending_return_tab = None;
+        }
     }
 
     pub fn active_subscriptions(&self) -> Vec<String> {
@@ -1115,6 +1141,7 @@ mod tests {
             paper_engine: None,
             volume_unit: crate::state::VolumeUnit::Usd,
             pending_navigation: None,
+            pending_return_tab: None,
             instrument_types: std::collections::HashMap::new(),
             user_connection: crate::state::ConnectionStatus::Error,
             isolated_positions: std::collections::HashMap::new(),

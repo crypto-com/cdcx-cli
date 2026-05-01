@@ -312,6 +312,7 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         paper_engine: cdcx_core::paper::engine::PaperEngine::load_or_init(10000.0).ok(),
         volume_unit: crate::state::VolumeUnit::Usd,
         pending_navigation: None,
+        pending_return_tab: None,
         isolated_positions: std::collections::HashMap::new(),
         positions_snapshot: Vec::new(),
         update_notice: None,

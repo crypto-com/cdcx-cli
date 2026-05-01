@@ -218,6 +218,37 @@ impl Tab for WatchlistTab {
     fn selected_instrument(&self) -> Option<&str> {
         self.instruments.get(self.selected).map(|s| s.as_str())
     }
+
+    fn on_click(&mut self, row: u16, _col: u16, _state: &mut AppState) -> bool {
+        if self.picker.is_some() {
+            return false;
+        }
+        // Layout: row 0 = table header, row 1+ = data rows
+        if row >= 1 {
+            let data_row = (row - 1) as usize;
+            if data_row < self.instruments.len() {
+                self.selected = data_row;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn on_double_click(&mut self, row: u16, _col: u16, state: &mut AppState) -> bool {
+        if self.picker.is_some() {
+            return false;
+        }
+        if row >= 1 {
+            let data_row = (row - 1) as usize;
+            if data_row < self.instruments.len() {
+                self.selected = data_row;
+                state.pending_navigation =
+                    Some((TabKind::Market, self.instruments[self.selected].clone()));
+                return true;
+            }
+        }
+        false
+    }
 }
 
 #[cfg(test)]
