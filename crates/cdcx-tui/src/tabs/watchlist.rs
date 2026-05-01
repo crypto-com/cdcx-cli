@@ -6,9 +6,10 @@ use ratatui::widgets::{Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use crate::format::{format_compact, format_price};
-use crate::state::AppState;
+use crate::state::{AppState, ToastStyle};
 use crate::tabs::{DataEvent, Tab, TabKind};
 use crate::widgets::instrument_picker::{InstrumentPicker, PickerResult};
+use crate::widgets::settings::save_watchlist;
 
 pub struct WatchlistTab {
     instruments: Vec<String>,
@@ -34,6 +35,15 @@ impl WatchlistTab {
             picker: None,
         }
     }
+
+    /// Write the current watchlist to ~/.config/cdcx/tui.toml. Called after
+    /// add/remove so changes survive across sessions. On failure we toast
+    /// but keep the in-memory change — the user can retry later.
+    fn persist(&self, state: &mut AppState) {
+        if let Err(err) = save_watchlist(&self.instruments) {
+            state.toast(format!("Watchlist save failed: {}", err), ToastStyle::Error);
+        }
+    }
 }
 
 impl Tab for WatchlistTab {
@@ -51,6 +61,7 @@ impl Tab for WatchlistTab {
                 PickerResult::Selected(inst) => {
                     if !self.instruments.contains(&inst) {
                         self.instruments.push(inst);
+                        self.persist(state);
                     }
                     self.picker = None;
                 }
@@ -91,6 +102,7 @@ impl Tab for WatchlistTab {
                     if self.selected >= self.instruments.len() && self.selected > 0 {
                         self.selected -= 1;
                     }
+                    self.persist(state);
                 }
                 true
             }
@@ -254,6 +266,7 @@ impl Tab for WatchlistTab {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::settings::save_watchlist_at;
 
     fn empty_tab() -> WatchlistTab {
         WatchlistTab {
@@ -277,5 +290,48 @@ mod tests {
             tab.is_editing(),
             "picker open must suppress global hotkeys (otherwise 'p' toggles paper mode, etc.)"
         );
+    }
+
+    /// Regression for Issue #23: the tab's `instruments` field must be the
+    /// authoritative source that gets written to disk — so the round-trip
+    /// through save_watchlist_at must reflect exactly what the user sees.
+    ///
+    /// This test bypasses the AppState-dependent `persist()` wrapper and
+    /// directly exercises the save function against a tempdir, simulating
+    /// the same mutations that `on_key` performs.
+    #[test]
+    fn watchlist_mutations_round_trip_through_save() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("cdcx-wl-test-{}.toml", nanos));
+        let _ = std::fs::remove_file(&path);
+
+        let mut tab = empty_tab();
+
+        // Simulate "press `a` and pick XRP_USDT" — this is what on_key does
+        // in the picker Selected branch.
+        tab.instruments.push("XRP_USDT".into());
+        save_watchlist_at(&path, &tab.instruments).expect("save after add");
+
+        let content = std::fs::read_to_string(&path).expect("file exists");
+        assert!(content.contains("BTC_USDT"));
+        assert!(content.contains("XRP_USDT"));
+
+        // Simulate "press `d` with XRP selected" — this is what on_key does
+        // in the Char('d') branch.
+        tab.instruments.remove(1);
+        save_watchlist_at(&path, &tab.instruments).expect("save after remove");
+
+        let content = std::fs::read_to_string(&path).expect("file exists");
+        assert!(content.contains("BTC_USDT"));
+        assert!(
+            !content.contains("XRP_USDT"),
+            "removed instrument must be gone from disk: {}",
+            content
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }
