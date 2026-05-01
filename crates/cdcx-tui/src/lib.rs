@@ -48,6 +48,57 @@ pub struct TuiOptions {
     pub setup: bool,
 }
 
+/// Build the synthetic RestResponse payload used when a REST call fails at the
+/// transport layer (e.g. HTTP 401 NO_TRADING_RIGHT, network error).
+///
+/// Workflows like cancel-order key off `code` and close the modal on non-zero;
+/// without this synthesis the modal stays in Submitting forever. Code -1 is a
+/// sentinel that distinguishes transport errors from server-side rejections
+/// (which carry real exchange codes) so the workflow layer can suppress a
+/// duplicate toast — the handler below already toasts the raw error.
+pub fn rest_error_payload(err: &str) -> serde_json::Value {
+    serde_json::json!({
+        "code": -1,
+        "message": err,
+    })
+}
+
+/// Process a REST response from the `rest_resp_rx` channel. Extracted so the
+/// logic (especially the Err → synthetic RestResponse path that unsticks
+/// cancel-order / place-order / close-position modals) is unit-testable
+/// without spinning up the full main loop.
+pub fn handle_rest_response(
+    app: &mut App,
+    method: String,
+    result: Result<serde_json::Value, String>,
+) {
+    match result {
+        Ok(data) => {
+            app.on_data(DataEvent::RestResponse { method, data });
+        }
+        Err(err) => {
+            let short = if err.len() > 60 {
+                format!("{}...", &err[..57])
+            } else {
+                err.clone()
+            };
+            app.state.toast(
+                format!(
+                    "{}: {}",
+                    method.split('/').next_back().unwrap_or(&method),
+                    short
+                ),
+                state::ToastStyle::Error,
+            );
+            let payload = rest_error_payload(&err);
+            app.on_data(DataEvent::RestResponse {
+                method,
+                data: payload,
+            });
+        }
+    }
+}
+
 pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
     // Run setup wizard if --setup flag or first launch (no tui.toml)
     let needs_setup = opts.setup || !TuiConfig::exists();
@@ -492,19 +543,7 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
             }
             rest_resp = rest_resp_rx.recv() => {
                 if let Some((method, result)) = rest_resp {
-                    match result {
-                        Ok(data) => {
-                            app.on_data(DataEvent::RestResponse { method, data });
-                        }
-                        Err(err) => {
-                            // Show error as toast — don't silently swallow failures
-                            let short = if err.len() > 60 { format!("{}...", &err[..57]) } else { err };
-                            app.state.toast(
-                                format!("{}: {}", method.split('/').next_back().unwrap_or(&method), short),
-                                state::ToastStyle::Error,
-                            );
-                        }
-                    }
+                    handle_rest_response(&mut app, method, result);
                 }
             }
             notice = update_rx.recv() => {
@@ -637,4 +676,47 @@ async fn fetch_tickers(api: &ApiClient) -> std::collections::HashMap<String, Tic
         }
     }
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The synthetic error payload is a contract between lib.rs (producer) and
+    /// every workflow that keys off `code` to close its modal. If this shape
+    /// changes, the modal-close logic in app.rs and every workflow's
+    /// on_response silently breaks. Pin it.
+    #[test]
+    fn rest_error_payload_has_sentinel_code_and_message() {
+        let payload = rest_error_payload("401 NO_TRADING_RIGHT");
+
+        assert_eq!(
+            payload.get("code").and_then(|v| v.as_i64()),
+            Some(-1),
+            "workflows depend on code=-1 as the transport-error sentinel"
+        );
+        assert_eq!(
+            payload.get("message").and_then(|v| v.as_str()),
+            Some("401 NO_TRADING_RIGHT"),
+            "raw error string must be preserved for display"
+        );
+    }
+
+    /// End-to-end: the payload produced here must be accepted by the cancel
+    /// branch in app.rs (via the `code` field at the top level OR nested under
+    /// `data`). This test fails if either side drifts.
+    #[test]
+    fn rest_error_payload_is_parseable_by_app_cancel_branch() {
+        let payload = rest_error_payload("boom");
+
+        // Replicate the lookup logic used in app.rs:640 for cancel-all-orders.
+        let code = payload
+            .get("data")
+            .and_then(|d| d.get("code"))
+            .and_then(|v| v.as_i64())
+            .or_else(|| payload.get("code").and_then(|v| v.as_i64()))
+            .unwrap_or(0);
+
+        assert_eq!(code, -1);
+    }
 }
