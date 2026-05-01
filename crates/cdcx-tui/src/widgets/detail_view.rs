@@ -13,7 +13,7 @@ pub fn draw_detail(
     instrument: &str,
     state: &AppState,
     book_data: &Option<serde_json::Value>,
-    trades_data: &Option<serde_json::Value>,
+    recent_trades: &[serde_json::Value],
 ) {
     let [header_area, body_area, footer_area] = Layout::vertical([
         Constraint::Length(3),
@@ -82,7 +82,7 @@ pub fn draw_detail(
     draw_book(frame, book_area, state, instrument, book_data);
 
     // Recent trades
-    draw_trades(frame, trades_area, state, trades_data);
+    draw_trades(frame, trades_area, state, recent_trades);
 
     // Footer
     frame.render_widget(
@@ -300,12 +300,7 @@ fn draw_book(
     }
 }
 
-fn draw_trades(
-    frame: &mut Frame,
-    area: Rect,
-    state: &AppState,
-    trades_data: &Option<serde_json::Value>,
-) {
+fn draw_trades(frame: &mut Frame, area: Rect, state: &AppState, trades: &[serde_json::Value]) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(state.theme.colors.border))
@@ -313,16 +308,15 @@ fn draw_trades(
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let Some(data) = trades_data else {
+    if trades.is_empty() {
         frame.render_widget(
             Paragraph::new("Loading trades...")
                 .style(Style::default().fg(state.theme.colors.muted)),
             inner,
         );
         return;
-    };
+    }
 
-    let trades = data.as_array();
     let max_rows = (inner.height as usize).saturating_sub(1);
 
     let header = Row::new(vec!["Price", "Qty", "Side"]).style(
@@ -337,29 +331,26 @@ fn draw_trades(
     ];
 
     let rows: Vec<Row> = trades
-        .map(|arr| {
-            arr.iter()
-                .take(max_rows)
-                .map(|item| {
-                    let price = item.get("p").and_then(|v| v.as_str()).unwrap_or("");
-                    let qty = item.get("q").and_then(|v| v.as_str()).unwrap_or("");
-                    let side_raw = item.get("s").and_then(|v| v.as_str()).unwrap_or("");
-                    let side = side_raw.to_uppercase();
-                    let color = if side == "BUY" {
-                        state.theme.colors.positive
-                    } else {
-                        state.theme.colors.negative
-                    };
-                    Row::new(vec![
-                        Cell::from(price.to_string()),
-                        Cell::from(qty.to_string()),
-                        Cell::from(side.clone()),
-                    ])
-                    .style(Style::default().fg(color))
-                })
-                .collect()
+        .iter()
+        .take(max_rows)
+        .map(|item| {
+            let price = item.get("p").and_then(|v| v.as_str()).unwrap_or("");
+            let qty = item.get("q").and_then(|v| v.as_str()).unwrap_or("");
+            let side_raw = item.get("s").and_then(|v| v.as_str()).unwrap_or("");
+            let side = side_raw.to_uppercase();
+            let color = if side == "BUY" {
+                state.theme.colors.positive
+            } else {
+                state.theme.colors.negative
+            };
+            Row::new(vec![
+                Cell::from(price.to_string()),
+                Cell::from(qty.to_string()),
+                Cell::from(side.clone()),
+            ])
+            .style(Style::default().fg(color))
         })
-        .unwrap_or_default();
+        .collect();
 
     let table = Table::new(rows, widths).header(header).column_spacing(1);
     frame.render_widget(table, inner);
