@@ -13,6 +13,13 @@ use std::collections::{HashMap, VecDeque};
 /// truncates from this cap — the render path re-clips to visible rows.
 const RECENT_TRADES_CAP: usize = 100;
 
+/// Maximum number of instruments' candle series retained in-memory.
+/// Chart and Compare views insert one entry per instrument viewed in a
+/// session; without a cap this grows unbounded (issue #25). Eviction is
+/// LRU — least-recently-viewed instrument is dropped when a new one
+/// arrives and the cap is reached.
+const MAX_CANDLE_INSTRUMENTS: usize = 20;
+
 use crate::format::{format_compact, format_price};
 use crate::state::{AppState, RestRequest};
 use crate::tabs::{DataEvent, Tab, TabKind};
@@ -95,8 +102,12 @@ pub struct MarketTab {
     /// REST `public/get-trades` response, then updated by streaming batches.
     recent_trades: VecDeque<serde_json::Value>,
     candle_data: Option<serde_json::Value>,
-    // Streaming candle storage per instrument
+    // Streaming candle storage per instrument.
+    // `candles` holds the data; `candle_access_order` tracks LRU eviction
+    // order so the map can't grow unbounded across a long session
+    // (issue #25). Back of the deque = most-recently-accessed.
     candles: HashMap<String, Vec<Candle>>,
+    candle_access_order: VecDeque<String>,
     timeframe: String,
     heatmap: bool,
     // Compare view state
@@ -130,6 +141,7 @@ impl MarketTab {
             recent_trades: VecDeque::with_capacity(RECENT_TRADES_CAP),
             candle_data: None,
             candles: HashMap::new(),
+            candle_access_order: VecDeque::with_capacity(MAX_CANDLE_INSTRUMENTS),
             timeframe: "1h".into(),
             heatmap: false,
             compare_instruments: vec![],
@@ -228,8 +240,10 @@ impl MarketTab {
             current_idx.saturating_sub(1)
         };
         self.timeframe = TIMEFRAMES[new_idx].to_string();
-        // Clear existing candle data and refetch
+        // Clear existing candle data and refetch — keep the two LRU
+        // structures in lockstep.
         self.candles.clear();
+        self.candle_access_order.clear();
         match self.view_mode {
             ViewMode::Chart => {
                 self.fetch_candles(&self.detail_instrument.clone(), state);
@@ -255,6 +269,31 @@ impl MarketTab {
             "12h" => 43_200_000,
             "1D" => 86_400_000,
             _ => 3_600_000, // default 1h
+        }
+    }
+
+    /// Promote `instrument` to most-recently-accessed in the LRU order.
+    /// If inserting it would exceed MAX_CANDLE_INSTRUMENTS, evict the
+    /// oldest entry from both the order deque and the data map.
+    ///
+    /// Call this every time a candle entry is inserted or updated.
+    fn touch_candles(&mut self, instrument: &str) {
+        // Remove existing position (if any) — we'll push to MRU at the end.
+        if let Some(pos) = self
+            .candle_access_order
+            .iter()
+            .position(|i| i == instrument)
+        {
+            self.candle_access_order.remove(pos);
+        }
+        self.candle_access_order.push_back(instrument.to_string());
+
+        // Evict oldest if we're over cap. Use `while` so we catch any
+        // rare case where the cap was tightened or state was loaded stale.
+        while self.candle_access_order.len() > MAX_CANDLE_INSTRUMENTS {
+            if let Some(evict) = self.candle_access_order.pop_front() {
+                self.candles.remove(&evict);
+            }
         }
     }
 
@@ -688,8 +727,10 @@ impl Tab for MarketTab {
                                 let inst = data
                                     .get("instrument_name")
                                     .and_then(|v| v.as_str())
-                                    .unwrap_or(&self.detail_instrument);
-                                self.candles.insert(inst.to_string(), parsed);
+                                    .unwrap_or(&self.detail_instrument)
+                                    .to_string();
+                                self.candles.insert(inst.clone(), parsed);
+                                self.touch_candles(&inst);
                             }
                         }
                     }
@@ -755,28 +796,33 @@ impl Tab for MarketTab {
                 .checked_div(interval_ms)
                 .map(|q| q * interval_ms)
                 .unwrap_or(candle.timestamp);
-            let entry = self.candles.entry(instrument.clone()).or_default();
+            {
+                let entry = self.candles.entry(instrument.clone()).or_default();
 
-            if let Some(last) = entry.last_mut() {
-                let last_period = last
-                    .timestamp
-                    .checked_div(interval_ms)
-                    .map(|q| q * interval_ms)
-                    .unwrap_or(last.timestamp);
-                if last_period == candle_period {
-                    // Same candle period — update OHLCV in place
-                    last.update_from(candle);
-                } else if candle_period > last_period {
-                    // New candle period — append
-                    entry.push(candle.clone());
-                    if entry.len() > 200 {
-                        entry.remove(0);
+                if let Some(last) = entry.last_mut() {
+                    let last_period = last
+                        .timestamp
+                        .checked_div(interval_ms)
+                        .map(|q| q * interval_ms)
+                        .unwrap_or(last.timestamp);
+                    if last_period == candle_period {
+                        // Same candle period — update OHLCV in place
+                        last.update_from(candle);
+                    } else if candle_period > last_period {
+                        // New candle period — append
+                        entry.push(candle.clone());
+                        if entry.len() > 200 {
+                            entry.remove(0);
+                        }
                     }
+                    // Ignore candles older than the last one
+                } else {
+                    entry.push(candle.clone());
                 }
-                // Ignore candles older than the last one
-            } else {
-                entry.push(candle.clone());
             }
+            // touch_candles needs a separate &mut self borrow, so we scope
+            // the entry borrow above.
+            self.touch_candles(instrument);
             return;
         }
 
@@ -1524,5 +1570,94 @@ mod tests {
             ))),
             "oldest 3 seeds must be evicted from the back"
         );
+    }
+
+    // ---- Candles LRU eviction (Issue #25) ----
+
+    /// Seed `candles` + access-order with one entry per instrument so
+    /// tests exercise the touch/evict logic without needing REST I/O.
+    /// We don't care about the Vec<Candle> contents here — only the
+    /// map bookkeeping.
+    fn insert_candle(tab: &mut MarketTab, inst: &str) {
+        tab.candles.insert(inst.to_string(), vec![]);
+        tab.touch_candles(inst);
+    }
+
+    /// Touching the same instrument multiple times must not grow the
+    /// access-order deque — it promotes, not appends.
+    #[test]
+    fn touch_candles_promotes_existing_entry() {
+        let mut tab = MarketTab::new();
+        insert_candle(&mut tab, "BTC_USDT");
+        insert_candle(&mut tab, "ETH_USDT");
+
+        // Re-touch BTC — ETH should now be oldest, BTC newest.
+        tab.touch_candles("BTC_USDT");
+
+        assert_eq!(tab.candle_access_order.len(), 2, "no duplicate entry");
+        assert_eq!(
+            tab.candle_access_order.front().map(|s| s.as_str()),
+            Some("ETH_USDT"),
+            "older entry must be at the front"
+        );
+        assert_eq!(
+            tab.candle_access_order.back().map(|s| s.as_str()),
+            Some("BTC_USDT"),
+            "re-touched entry must move to the back (MRU)"
+        );
+    }
+
+    /// Issue #25 regression: when the cap is exceeded, the LRU entry
+    /// must be evicted from BOTH the access-order deque AND the
+    /// candles HashMap. Without the evict from `candles`, the
+    /// HashMap would grow unbounded.
+    #[test]
+    fn touch_candles_evicts_lru_from_both_maps() {
+        let mut tab = MarketTab::new();
+        // Fill to cap.
+        for i in 0..MAX_CANDLE_INSTRUMENTS {
+            insert_candle(&mut tab, &format!("INST_{}", i));
+        }
+        assert_eq!(tab.candles.len(), MAX_CANDLE_INSTRUMENTS);
+        assert_eq!(tab.candle_access_order.len(), MAX_CANDLE_INSTRUMENTS);
+
+        // Adding one more must evict INST_0 from both structures.
+        insert_candle(&mut tab, "NEW_INST");
+
+        assert_eq!(
+            tab.candles.len(),
+            MAX_CANDLE_INSTRUMENTS,
+            "candles HashMap must not exceed cap"
+        );
+        assert_eq!(
+            tab.candle_access_order.len(),
+            MAX_CANDLE_INSTRUMENTS,
+            "access order must not exceed cap"
+        );
+        assert!(
+            !tab.candles.contains_key("INST_0"),
+            "oldest entry must be evicted from the HashMap, not just the order deque"
+        );
+        assert!(tab.candles.contains_key("NEW_INST"));
+        assert!(tab
+            .candles
+            .contains_key(&format!("INST_{}", MAX_CANDLE_INSTRUMENTS - 1)));
+    }
+
+    /// Sustained traffic: the HashMap size must stay bounded even
+    /// after many more insertions than the cap.
+    #[test]
+    fn touch_candles_holds_bound_under_sustained_traffic() {
+        let mut tab = MarketTab::new();
+        for i in 0..(MAX_CANDLE_INSTRUMENTS * 5) {
+            insert_candle(&mut tab, &format!("INST_{}", i));
+            assert!(
+                tab.candles.len() <= MAX_CANDLE_INSTRUMENTS,
+                "candles map exceeded cap after {} insertions: {}",
+                i + 1,
+                tab.candles.len()
+            );
+        }
+        assert_eq!(tab.candles.len(), MAX_CANDLE_INSTRUMENTS);
     }
 }
