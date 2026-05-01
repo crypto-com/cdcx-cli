@@ -344,41 +344,86 @@ impl SettingsPanel {
     }
 }
 
+/// Read-modify-write a tui.toml file at `path` through a `toml::Table`. This
+/// preserves unknown keys (custom themes, forward-compatibility), which is
+/// why we parse into a dynamic Table instead of round-tripping TuiConfig.
+/// Split out so tests can pass a tempdir path.
+fn mutate_tui_toml_at<F>(path: &std::path::Path, mutate: F) -> Result<(), String>
+where
+    F: FnOnce(&mut toml::Table),
+{
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config dir: {}", e))?;
+    }
+
+    let existing = std::fs::read_to_string(path).unwrap_or_default();
+    let mut config: toml::Table = existing.parse().unwrap_or_default();
+
+    mutate(&mut config);
+
+    let toml_str = toml::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let schema_url = cdcx_core::github::raw("main", "schemas/configs/tui.json");
+    let output = format!("#:schema {}\n\n{}", schema_url, toml_str);
+    std::fs::write(path, output).map_err(|e| format!("Failed to write config: {}", e))?;
+
+    Ok(())
+}
+
+fn default_tui_toml_path() -> Result<std::path::PathBuf, String> {
+    let Some(home) = dirs::home_dir() else {
+        return Err("Could not determine home directory".into());
+    };
+    Ok(home.join(".config").join("cdcx").join("tui.toml"))
+}
+
+fn mutate_tui_toml<F>(mutate: F) -> Result<(), String>
+where
+    F: FnOnce(&mut toml::Table),
+{
+    let path = default_tui_toml_path()?;
+    mutate_tui_toml_at(&path, mutate)
+}
+
 /// Write settings to ~/.config/cdcx/tui.toml, preserving watchlist and custom themes.
 pub fn save_settings(
     theme_name: &str,
     tick_rate_ms: u64,
     ticker_speed: &str,
 ) -> Result<(), String> {
-    let Some(home) = dirs::home_dir() else {
-        return Err("Could not determine home directory".into());
-    };
-    let dir = home.join(".config").join("cdcx");
-    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
+    mutate_tui_toml(|config| {
+        config.insert("theme".into(), toml::Value::String(theme_name.into()));
+        config.insert(
+            "tick_rate_ms".into(),
+            toml::Value::Integer(tick_rate_ms as i64),
+        );
+        config.insert(
+            "ticker_speed".into(),
+            toml::Value::String(ticker_speed.into()),
+        );
+    })
+}
 
-    let path = dir.join("tui.toml");
+/// Persist the current watchlist to ~/.config/cdcx/tui.toml so add/remove
+/// actions survive across sessions. Preserves every other key.
+pub fn save_watchlist(instruments: &[String]) -> Result<(), String> {
+    save_watchlist_at(&default_tui_toml_path()?, instruments)
+}
 
-    // Load existing config to preserve watchlist and custom themes
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let mut config: toml::Table = existing.parse().unwrap_or_default();
-
-    config.insert("theme".into(), toml::Value::String(theme_name.into()));
-    config.insert(
-        "tick_rate_ms".into(),
-        toml::Value::Integer(tick_rate_ms as i64),
-    );
-    config.insert(
-        "ticker_speed".into(),
-        toml::Value::String(ticker_speed.into()),
-    );
-
-    let toml_str = toml::to_string_pretty(&config)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
-    let schema_url = cdcx_core::github::raw("main", "schemas/configs/tui.json");
-    let output = format!("#:schema {}\n\n{}", schema_url, toml_str);
-    std::fs::write(&path, output).map_err(|e| format!("Failed to write config: {}", e))?;
-
-    Ok(())
+/// Internal form of `save_watchlist` that writes to an explicit path. Tests
+/// use this to verify round-trip behavior against a tempdir.
+pub(crate) fn save_watchlist_at(
+    path: &std::path::Path,
+    instruments: &[String],
+) -> Result<(), String> {
+    let values: Vec<toml::Value> = instruments
+        .iter()
+        .map(|s| toml::Value::String(s.clone()))
+        .collect();
+    mutate_tui_toml_at(path, |config| {
+        config.insert("watchlist".into(), toml::Value::Array(values));
+    })
 }
 
 #[cfg(test)]
@@ -501,5 +546,119 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         assert_eq!(panel.selected, 1);
+    }
+
+    // ---- Watchlist persistence (Issue #23) ----
+
+    /// Build a unique path under the system temp dir for a test. Each test
+    /// gets its own file; no cleanup needed — OS reclaims /tmp eventually.
+    fn temp_tui_toml(tag: &str) -> std::path::PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("cdcx-test-{}-{}.toml", tag, nanos))
+    }
+
+    /// save_watchlist_at on a fresh file must write the `watchlist` key so
+    /// TuiConfig::load() can read it back.
+    #[test]
+    fn save_watchlist_persists_to_disk() {
+        let path = temp_tui_toml("save-watchlist");
+        let _ = std::fs::remove_file(&path);
+
+        save_watchlist_at(&path, &["BTC_USDT".into(), "ETH_USDT".into()])
+            .expect("save must succeed on writable tempdir");
+
+        let content = std::fs::read_to_string(&path).expect("file must exist");
+        assert!(
+            content.contains("watchlist"),
+            "output must contain `watchlist` key, got: {}",
+            content
+        );
+        assert!(content.contains("BTC_USDT"));
+        assert!(content.contains("ETH_USDT"));
+
+        // Round-trip: parse it back through a TuiConfig-shaped toml.
+        let parsed: toml::Table = content
+            .lines()
+            .filter(|l| !l.starts_with("#:schema"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .parse()
+            .expect("output must be valid TOML");
+        let arr = parsed
+            .get("watchlist")
+            .and_then(|v| v.as_array())
+            .expect("watchlist must round-trip as an array");
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0].as_str(), Some("BTC_USDT"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Subsequent saves must replace the watchlist entry, not append to it.
+    /// Also verifies that other pre-existing keys (theme, custom themes) are
+    /// preserved across the save — that's the whole reason we use the
+    /// read-modify-write Table approach instead of serializing TuiConfig.
+    #[test]
+    fn save_watchlist_preserves_other_keys() {
+        let path = temp_tui_toml("preserve-other-keys");
+        let _ = std::fs::remove_file(&path);
+
+        // Seed the file with a theme + a custom theme block the user may have.
+        let seed = "theme = \"cyber-midnight\"\n\
+tick_rate_ms = 500\n\
+\n\
+[themes.my-custom]\n\
+bg = \"#000000\"\n\
+fg = \"#ffffff\"\n";
+        std::fs::create_dir_all(path.parent().unwrap()).ok();
+        std::fs::write(&path, seed).expect("seed write");
+
+        save_watchlist_at(&path, &["ADA_USDT".into()]).expect("save");
+
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert!(content.contains("cyber-midnight"), "theme must survive");
+        assert!(
+            content.contains("my-custom"),
+            "custom theme table must survive"
+        );
+        assert!(content.contains("ADA_USDT"), "new watchlist entry present");
+
+        // And re-saving over an existing watchlist must replace, not append.
+        save_watchlist_at(&path, &["DOGE_USDT".into()]).expect("second save");
+        let content2 = std::fs::read_to_string(&path).expect("re-read");
+        assert!(!content2.contains("ADA_USDT"), "old entry must be gone");
+        assert!(content2.contains("DOGE_USDT"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Empty watchlist still writes a valid file with `watchlist = []`. This
+    /// matters: if the user removes all entries, we must not leave the prior
+    /// list in place.
+    #[test]
+    fn save_watchlist_handles_empty_list() {
+        let path = temp_tui_toml("empty-watchlist");
+        let _ = std::fs::remove_file(&path);
+        std::fs::create_dir_all(path.parent().unwrap()).ok();
+        std::fs::write(&path, "watchlist = [\"BTC_USDT\"]\n").ok();
+
+        save_watchlist_at(&path, &[]).expect("save empty");
+
+        let content = std::fs::read_to_string(&path).expect("read");
+        assert!(!content.contains("BTC_USDT"), "prior entry must be cleared");
+        let parsed: toml::Table = content
+            .lines()
+            .filter(|l| !l.starts_with("#:schema"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .parse()
+            .expect("valid TOML");
+        let arr = parsed.get("watchlist").and_then(|v| v.as_array()).unwrap();
+        assert!(arr.is_empty());
+
+        let _ = std::fs::remove_file(&path);
     }
 }
