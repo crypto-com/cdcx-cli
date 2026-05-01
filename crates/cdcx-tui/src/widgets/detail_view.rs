@@ -13,6 +13,7 @@ pub fn draw_detail(
     instrument: &str,
     state: &AppState,
     book_data: &Option<serde_json::Value>,
+    book_depth: usize,
     recent_trades: &[serde_json::Value],
 ) {
     let [header_area, body_area, footer_area] = Layout::vertical([
@@ -79,7 +80,7 @@ pub fn draw_detail(
             .areas(body_area);
 
     // Order book
-    draw_book(frame, book_area, state, instrument, book_data);
+    draw_book(frame, book_area, state, instrument, book_data, book_depth);
 
     // Recent trades
     draw_trades(frame, trades_area, state, recent_trades);
@@ -87,7 +88,10 @@ pub fn draw_detail(
     // Footer
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            "Esc:back to table  k:candlestick chart  t:trade",
+            format!(
+                "Esc:back to table  k:candlestick chart  D:depth({})  t:trade",
+                book_depth
+            ),
             Style::default().fg(state.theme.colors.muted),
         ))),
         footer_area,
@@ -100,11 +104,12 @@ fn draw_book(
     state: &AppState,
     instrument: &str,
     book_data: &Option<serde_json::Value>,
+    book_depth: usize,
 ) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(state.theme.colors.border))
-        .title(" Order Book ");
+        .title(format!(" Order Book ({}) ", book_depth));
     let full_inner = block.inner(area);
     frame.render_widget(block, area);
 
