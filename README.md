@@ -41,7 +41,7 @@ cdcx mcp --services market,account,trade
 }
 ```
 
-Compatible with Claude Code, Cursor, Claude Desktop, Codex, Copilot, Gemini CLI, and other MCP clients. Includes 12 agent skill files in `skills/` for guided workflows.
+Compatible with Claude Code, Cursor, Claude Desktop, Codex, Github Copilot, Gemini CLI, and other MCP clients. Includes 13 agent skill files in `skills/` for guided workflows.
 
 Things you can ask your AI agent:
 
@@ -127,7 +127,7 @@ Service groups (MCP): `market`, `account`, `trade`, `advanced`, `margin`, `staki
 
 ### Agent Skills
 
-12 skill files in `skills/` covering:
+13 skill files in `skills/` covering:
 
 | Skill | Purpose |
 |-------|---------|
@@ -141,8 +141,53 @@ Service groups (MCP): `market`, `account`, `trade`, `advanced`, `margin`, `staki
 | `cdcx-autonomy-levels` | Safety tier configuration |
 | `cdcx-check-balance` | Balance and credential verification |
 | `cdcx-place-limit-order` | Limit order workflow with preflight checks |
+| `cdcx-isolated-margin` | Isolated margin trading (equity/RWA perpetuals) |
 | `recipe-morning-brief` | Daily market briefing workflow |
 | `recipe-emergency-flatten` | Emergency position flattening |
+
+### Plugin Installation
+
+Install cdcx as a one-click plugin from your AI coding tool's marketplace.
+
+**Claude Code:**
+
+```bash
+claude plugin marketplace add crypto-com/cdcx-cli
+claude plugin install cdcx-cli@cdcx-cli
+```
+
+**Codex CLI:**
+
+```bash
+codex plugin marketplace add crypto-com/cdcx-cli
+```
+
+**Gemini CLI:**
+
+```bash
+gemini extensions install https://github.com/crypto-com/cdcx-cli
+```
+
+**Other:** Open Settings > MCP Servers, add:
+
+```json
+{
+  "cdcx": {
+    "command": "cdcx",
+    "args": ["mcp", "--services", "market"]
+  }
+}
+```
+
+**Any MCP client:** Drop `.mcp.json` in your project root (included in this repo).
+
+To expand services beyond market data, update the `--services` flag:
+
+```
+market,trade,account          # Trading agent
+market,trade,account,advanced # With OCO/OTOCO
+all --allow-dangerous         # Full access (withdrawals enabled)
+```
 
 ---
 

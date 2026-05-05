@@ -1,0 +1,16 @@
+{
+  "name": "cdcx-cli",
+  "owner": { "name": "Crypto.com" },
+  "metadata": {
+    "version": "1.2.0",
+    "description": "Crypto.com Exchange plugins for AI coding tools — MCP server, agent skills, and trading workflows."
+  },
+  "plugins": [
+    {
+      "name": "cdcx-cli",
+      "source": "./",
+      "description": "Agent-first CLI and MCP server for the Crypto.com Exchange API. Tools covering market data, trading, account management, and streaming. Market data by default; live trading opt-in via API keys.",
+      "tags": ["trading", "crypto", "exchange", "mcp", "crypto-com", "market-data"]
+    }
+  ]
+}
