@@ -1,0 +1,37 @@
+{
+  "name": "cdcx-cli",
+  "version": "1.2.0",
+  "description": "Agent-first CLI for the Crypto.com Exchange API. Market data by default; live trading opt-in via API keys. Available --services: market (default), trade, account, advanced, margin, staking, funding, fiat.",
+  "author": {
+    "name": "Crypto.com",
+    "url": "https://github.com/crypto-com/cdcx-cli"
+  },
+  "homepage": "https://github.com/crypto-com/cdcx-cli",
+  "repository": "https://github.com/crypto-com/cdcx-cli",
+  "license": "MIT OR Apache-2.0",
+  "keywords": [
+    "trading",
+    "crypto",
+    "exchange",
+    "mcp",
+    "crypto-com",
+    "market-data",
+    "defi"
+  ],
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "cdcx-cli",
+    "shortDescription": "Trade crypto on Crypto.com Exchange from your AI agent.",
+    "longDescription": "Agent-first CLI with a built-in MCP server for the Crypto.com Exchange API v1. Tools covering spot, futures, margin, staking, and advanced order types. Ships with goal-oriented skills for market intelligence, portfolio analysis, and trade execution. Market data works out of the box with no API keys; live trading is an explicit opt-in via expanded MCP service flags.",
+    "developerName": "Crypto.com",
+    "category": "Finance",
+    "capabilities": [
+      "Real-time market data (ticker, book, trades, candlestick)",
+      "Trading (spot, futures, margin, advanced orders)",
+      "Account and portfolio management",
+      "Paper trading for strategy testing"
+    ],
+    "defaultPrompt": "Give me a market brief for BTC_USDT, ETH_USDT, and CRO_USDT."
+  }
+}

@@ -57,7 +57,7 @@ impl rmcp::handler::server::ServerHandler for CdcxMcpServer {
     fn get_info(&self) -> rmcp::model::ServerInfo {
         use rmcp::model::{Implementation, ServerCapabilities};
 
-        rmcp::model::InitializeResult::new(ServerCapabilities::default())
+        rmcp::model::InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("cdcx", env!("CARGO_PKG_VERSION")))
     }
 
