@@ -173,8 +173,6 @@ codex plugin marketplace add crypto-com/cdcx-cli
 }
 ```
 
-**Any MCP client:** Drop `.mcp.json` in your project root (included in this repo).
-
 To expand services beyond market data, update the `--services` flag:
 
 ```
