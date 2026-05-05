@@ -162,12 +162,6 @@ claude plugin install cdcx-cli@cdcx-cli
 codex plugin marketplace add crypto-com/cdcx-cli
 ```
 
-**Gemini CLI:**
-
-```bash
-gemini extensions install https://github.com/crypto-com/cdcx-cli
-```
-
 **Other:** Open Settings > MCP Servers, add:
 
 ```json
