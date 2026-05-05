@@ -93,6 +93,102 @@ impl SortField {
 
 const TIMEFRAMES: &[&str] = &["1m", "5m", "15m", "30m", "1h", "4h", "6h", "12h", "1D"];
 
+/// Which side of the book the cursor is on, plus the zero-based index into
+/// that side's visible levels (0 = best / closest to mid).
+///
+/// Kept as a standalone enum (rather than an `Option<(Side, usize)>` on
+/// `MarketTab`) so the movement rules can be expressed and unit-tested as
+/// pure functions without dragging `AppState` into the tests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BookCursor {
+    Ask(usize),
+    Bid(usize),
+}
+
+/// Move the cursor down one level. `ask_len` / `bid_len` are the current
+/// visible level counts on each side (so the cursor can never point past
+/// what's rendered).
+///
+/// Rule: ↓ means "move visually down on screen". Asks render with deepest
+/// at top and best at bottom, so ↓ on an ask means *toward the mid*
+/// (smaller index). Crossing the best ask drops the cursor onto the best
+/// bid. On bids, ↓ moves away from the mid (bigger index), clamping at
+/// the deepest visible bid.
+fn cursor_down(cursor: BookCursor, _ask_len: usize, bid_len: usize) -> BookCursor {
+    match cursor {
+        BookCursor::Ask(0) => {
+            if bid_len > 0 {
+                BookCursor::Bid(0)
+            } else {
+                BookCursor::Ask(0)
+            }
+        }
+        BookCursor::Ask(i) => BookCursor::Ask(i - 1),
+        BookCursor::Bid(i) if i + 1 < bid_len => BookCursor::Bid(i + 1),
+        BookCursor::Bid(i) => BookCursor::Bid(i),
+    }
+}
+
+/// Move the cursor up one level. Mirror of `cursor_down` — on asks ↑ moves
+/// *away* from the mid (bigger index); on bids ↑ moves *toward* the mid
+/// (smaller index); crossing the best bid lands on the best ask.
+fn cursor_up(cursor: BookCursor, ask_len: usize, _bid_len: usize) -> BookCursor {
+    match cursor {
+        BookCursor::Bid(0) => {
+            if ask_len > 0 {
+                BookCursor::Ask(0)
+            } else {
+                BookCursor::Bid(0)
+            }
+        }
+        BookCursor::Bid(i) => BookCursor::Bid(i - 1),
+        BookCursor::Ask(i) if i + 1 < ask_len => BookCursor::Ask(i + 1),
+        BookCursor::Ask(i) => BookCursor::Ask(i),
+    }
+}
+
+/// After a book/depth change the previous cursor position may point past
+/// the new list end. Clamp to a valid index, preserving the side. Returns
+/// `None` if the target side has zero levels (caller should clear cursor).
+fn clamp_cursor(cursor: BookCursor, ask_len: usize, bid_len: usize) -> Option<BookCursor> {
+    match cursor {
+        BookCursor::Ask(_) if ask_len == 0 && bid_len > 0 => Some(BookCursor::Bid(0)),
+        BookCursor::Ask(_) if ask_len == 0 => None,
+        BookCursor::Ask(i) => Some(BookCursor::Ask(i.min(ask_len - 1))),
+        BookCursor::Bid(_) if bid_len == 0 && ask_len > 0 => Some(BookCursor::Ask(0)),
+        BookCursor::Bid(_) if bid_len == 0 => None,
+        BookCursor::Bid(i) => Some(BookCursor::Bid(i.min(bid_len - 1))),
+    }
+}
+
+/// Running sums from top of book (best) down to (and including) `idx`,
+/// returned as `(cumulative_qty, cumulative_notional)`. The caller supplies
+/// the appropriate side's `(price, qty)` pairs already in top-down order.
+/// Notional = Σ price × qty, computed level-by-level so rounding matches
+/// the user's mental model (not `cum_qty * last_price`).
+pub fn cumulative_at(levels: &[(f64, f64)], idx: usize) -> (f64, f64) {
+    let mut cum_qty = 0.0;
+    let mut cum_notional = 0.0;
+    for (i, (price, qty)) in levels.iter().enumerate() {
+        cum_qty += qty;
+        cum_notional += price * qty;
+        if i == idx {
+            break;
+        }
+    }
+    (cum_qty, cum_notional)
+}
+
+/// Distance from `mid` in basis points (1 bp = 0.01%). Positive for prices
+/// above mid (asks), negative below (bids). Returns 0.0 if `mid` is 0 to
+/// avoid div-by-zero during the brief moment before the ticker arrives.
+pub fn bps_from_mid(price: f64, mid: f64) -> f64 {
+    if mid == 0.0 {
+        return 0.0;
+    }
+    (price - mid) / mid * 10_000.0
+}
+
 pub struct MarketTab {
     categories: Vec<String>, // dynamic inst_type values from API
     category: usize,
@@ -109,6 +205,12 @@ pub struct MarketTab {
     /// Current depth preset for the order-book REST fetch + WS subscription.
     /// Cycled with `D` on Detail view. Session-scoped — no tui.toml round-trip.
     book_depth: usize,
+    /// Cursor selecting a specific level in the order book for cumulative
+    /// inspection. `None` = no cursor → pressure bar renders as before;
+    /// `Some` = selected row is highlighted and the context line shows
+    /// cumulative qty / notional / distance-from-mid for that level.
+    /// Cleared on Esc, on leaving Detail, and on instrument switch.
+    book_cursor: Option<BookCursor>,
     /// Rolling buffer of recent trades, newest at the front. Seeded from the
     /// REST `public/get-trades` response, then updated by streaming batches.
     recent_trades: VecDeque<serde_json::Value>,
@@ -150,6 +252,7 @@ impl MarketTab {
             detail_instrument: String::new(),
             book_data: None,
             book_depth: DEFAULT_BOOK_DEPTH,
+            book_cursor: None,
             recent_trades: VecDeque::with_capacity(RECENT_TRADES_CAP),
             candle_data: None,
             candles: HashMap::new(),
@@ -181,6 +284,7 @@ impl MarketTab {
         self.detail_instrument = instrument.to_string();
         self.view_mode = ViewMode::Detail;
         self.book_data = None;
+        self.book_cursor = None;
         self.recent_trades.clear();
         let _ = state.rest_tx.send(RestRequest {
             method: "public/get-book".into(),
@@ -262,6 +366,88 @@ impl MarketTab {
     /// depth-suffix contract is testable without a full `AppState`.
     fn book_channel(&self) -> String {
         format!("book.{}.{}", self.detail_instrument, self.book_depth)
+    }
+
+    /// Re-validate `book_cursor` against the current level counts. Called
+    /// after each `book_data` refresh — depth changes and WS snapshots can
+    /// shrink either side, and a cursor pointing past the end would render
+    /// garbage + compute wrong cumulative stats.
+    fn clamp_book_cursor(&mut self) {
+        if let Some(cur) = self.book_cursor {
+            let (ask_len, bid_len) = self.book_level_counts();
+            self.book_cursor = clamp_cursor(cur, ask_len, bid_len);
+        }
+    }
+
+    /// Return the current visible `(ask_count, bid_count)` from `book_data`.
+    /// Called by the cursor-movement code, which needs to know the valid
+    /// index range; falls back to `(0, 0)` if the book hasn't arrived yet.
+    /// `book_depth` caps each side — we don't show more than that even if
+    /// the exchange sends extras.
+    fn book_level_counts(&self) -> (usize, usize) {
+        let Some(raw) = self.book_data.as_ref() else {
+            return (0, 0);
+        };
+        let Some(book) = raw
+            .get("data")
+            .and_then(|d| d.as_array())
+            .and_then(|arr| arr.first())
+        else {
+            return (0, 0);
+        };
+        let ask_len = book
+            .get("asks")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len().min(self.book_depth))
+            .unwrap_or(0);
+        let bid_len = book
+            .get("bids")
+            .and_then(|v| v.as_array())
+            .map(|b| b.len().min(self.book_depth))
+            .unwrap_or(0);
+        (ask_len, bid_len)
+    }
+
+    /// Handle ↓ on the Detail view: activate the cursor at the best ask if
+    /// it's not yet active, otherwise move it down one level. Returns true
+    /// if the cursor did anything — i.e. whether the keystroke was
+    /// consumed, so the caller can decide whether to fall through.
+    fn cursor_move_down(&mut self) -> bool {
+        let (ask_len, bid_len) = self.book_level_counts();
+        if ask_len == 0 && bid_len == 0 {
+            return false;
+        }
+        self.book_cursor = Some(match self.book_cursor {
+            None => {
+                if ask_len > 0 {
+                    BookCursor::Ask(0)
+                } else {
+                    BookCursor::Bid(0)
+                }
+            }
+            Some(c) => cursor_down(c, ask_len, bid_len),
+        });
+        true
+    }
+
+    /// Mirror of `cursor_move_down`: ↑ activates at best bid if dormant,
+    /// otherwise steps one level up.
+    fn cursor_move_up(&mut self) -> bool {
+        let (ask_len, bid_len) = self.book_level_counts();
+        if ask_len == 0 && bid_len == 0 {
+            return false;
+        }
+        self.book_cursor = Some(match self.book_cursor {
+            None => {
+                if bid_len > 0 {
+                    BookCursor::Bid(0)
+                } else {
+                    BookCursor::Ask(0)
+                }
+            }
+            Some(c) => cursor_up(c, ask_len, bid_len),
+        });
+        true
     }
 
     /// Advance `book_depth` to the next preset and re-fetch the snapshot.
@@ -507,21 +693,34 @@ impl Tab for MarketTab {
             ViewMode::Detail => {
                 return match key.code {
                     KeyCode::Esc => {
+                        // If a book cursor is active, first Esc clears it
+                        // (so the user isn't ejected from Detail while
+                        // inspecting levels). Second Esc exits Detail.
+                        if self.book_cursor.is_some() {
+                            self.book_cursor = None;
+                            return true;
+                        }
                         self.view_mode = ViewMode::Table;
                         if let Some(origin) = self.navigated_from.take() {
                             state.pending_return_tab = Some(origin);
                         }
                         true
                     }
+                    KeyCode::Down => self.cursor_move_down(),
+                    KeyCode::Up => self.cursor_move_up(),
                     KeyCode::Char('k') => {
+                        self.book_cursor = None;
                         self.enter_chart(state);
                         true
                     }
                     KeyCode::Char('m') => {
+                        self.book_cursor = None;
                         self.enter_compare(state);
                         true
                     }
                     KeyCode::Char('D') => {
+                        // Depth change invalidates the cursor's index bounds.
+                        self.book_cursor = None;
                         self.cycle_book_depth(state);
                         true
                     }
@@ -760,6 +959,7 @@ impl Tab for MarketTab {
                 "public/get-book" => {
                     if !data.is_null() {
                         self.book_data = Some(data.clone());
+                        self.clamp_book_cursor();
                     }
                     return;
                 }
@@ -812,6 +1012,7 @@ impl Tab for MarketTab {
                     } else {
                         self.book_data = Some(data.clone());
                     }
+                    self.clamp_book_cursor();
                 }
             }
             return;
@@ -903,6 +1104,7 @@ impl Tab for MarketTab {
                     state,
                     &self.book_data,
                     self.book_depth,
+                    self.book_cursor,
                     &trades,
                 );
                 return;
@@ -1769,5 +1971,103 @@ mod tests {
             tab.book_channel(),
             format!("book.{}", tab.detail_instrument)
         );
+    }
+
+    // ---- Book level cursor (#26 Piece 2) ----
+
+    /// ↓ within asks walks toward the mid (smaller index). The deepest ask
+    /// is `Ask(len-1)`; pressing ↓ from there moves to `Ask(len-2)` and
+    /// eventually `Ask(0)`, the best ask.
+    #[test]
+    fn cursor_down_on_asks_walks_toward_mid() {
+        let c = BookCursor::Ask(3);
+        assert_eq!(cursor_down(c, 5, 5), BookCursor::Ask(2));
+        assert_eq!(cursor_down(BookCursor::Ask(1), 5, 5), BookCursor::Ask(0));
+    }
+
+    /// ↓ from the best ask crosses the mid and lands on the best bid.
+    /// This is the key UX guarantee: arrows move *visually* down through
+    /// the panel, and the panel's vertical layout puts bids below asks.
+    #[test]
+    fn cursor_down_from_best_ask_crosses_to_best_bid() {
+        assert_eq!(cursor_down(BookCursor::Ask(0), 5, 5), BookCursor::Bid(0));
+    }
+
+    /// ↓ through bids moves deeper (bigger index) and clamps at the
+    /// deepest visible bid instead of wrapping — the user should never
+    /// see the cursor jump from the bottom back up to the top.
+    #[test]
+    fn cursor_down_on_bids_clamps_at_deepest() {
+        assert_eq!(cursor_down(BookCursor::Bid(4), 5, 5), BookCursor::Bid(4));
+    }
+
+    /// Mirror of the ask-crossing test: ↑ from best bid lands on best ask.
+    #[test]
+    fn cursor_up_from_best_bid_crosses_to_best_ask() {
+        assert_eq!(cursor_up(BookCursor::Bid(0), 5, 5), BookCursor::Ask(0));
+    }
+
+    /// ↑ on asks moves away from mid (deeper). At the deepest visible ask
+    /// the cursor clamps — no wrap.
+    #[test]
+    fn cursor_up_on_asks_clamps_at_deepest() {
+        assert_eq!(cursor_up(BookCursor::Ask(4), 5, 5), BookCursor::Ask(4));
+    }
+
+    /// Clamp a now-out-of-bounds cursor to the new last valid index on
+    /// the same side. Simulates depth-shrink (150 → 50 → 10) where the
+    /// cursor was sitting on a level that no longer exists.
+    #[test]
+    fn clamp_cursor_preserves_side_and_shrinks_index() {
+        assert_eq!(
+            clamp_cursor(BookCursor::Ask(80), 10, 10),
+            Some(BookCursor::Ask(9))
+        );
+        assert_eq!(
+            clamp_cursor(BookCursor::Bid(80), 10, 10),
+            Some(BookCursor::Bid(9))
+        );
+    }
+
+    /// When the cursor's side has zero levels (extreme edge — one-sided
+    /// book), fall back to the opposite side's best level rather than
+    /// returning `None` — the user was inspecting *something*, keep them
+    /// inside the book.
+    #[test]
+    fn clamp_cursor_falls_through_to_opposite_side_when_empty() {
+        assert_eq!(
+            clamp_cursor(BookCursor::Ask(3), 0, 5),
+            Some(BookCursor::Bid(0))
+        );
+        assert_eq!(
+            clamp_cursor(BookCursor::Bid(3), 5, 0),
+            Some(BookCursor::Ask(0))
+        );
+    }
+
+    /// Book with no levels at all → cursor must be cleared, not clamped.
+    #[test]
+    fn clamp_cursor_returns_none_on_empty_book() {
+        assert_eq!(clamp_cursor(BookCursor::Ask(0), 0, 0), None);
+    }
+
+    /// Cumulative stats must accumulate per-level (Σ price × qty), not
+    /// shortcut as `cum_qty * last_price`. Construct a book where the
+    /// difference matters: 1 @ 100 + 1 @ 200 → cum_notional = 300, not 400.
+    #[test]
+    fn cumulative_at_sums_notional_level_by_level() {
+        let levels = vec![(100.0, 1.0), (200.0, 1.0), (300.0, 1.0)];
+        assert_eq!(cumulative_at(&levels, 0), (1.0, 100.0));
+        assert_eq!(cumulative_at(&levels, 1), (2.0, 300.0));
+        assert_eq!(cumulative_at(&levels, 2), (3.0, 600.0));
+    }
+
+    /// Basis-points distance — positive above mid, negative below, and
+    /// zero when mid is zero (defensive div-by-zero guard).
+    #[test]
+    fn bps_from_mid_is_signed_and_guards_zero() {
+        assert_eq!(bps_from_mid(101.0, 100.0), 100.0); // +1% = +100 bps
+        assert_eq!(bps_from_mid(99.0, 100.0), -100.0);
+        assert_eq!(bps_from_mid(100.0, 0.0), 0.0);
     }
 }

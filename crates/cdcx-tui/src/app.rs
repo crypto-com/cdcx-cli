@@ -1039,7 +1039,8 @@ const HELP_PAGES: &[HelpPage] = &[
             HelpSection {
                 heading: "Detail View",
                 bindings: &[
-                    ("Esc", "Back to table"),
+                    ("Esc", "Clear cursor / back to table"),
+                    ("\u{2191}\u{2193}", "Move book cursor between levels"),
                     ("k", "Switch to candlestick chart"),
                     ("m", "Switch to compare view"),
                     ("D", "Cycle order-book depth (10/50/150)"),

@@ -5,8 +5,12 @@ use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use crate::state::AppState;
+use crate::tabs::market::{bps_from_mid, cumulative_at, BookCursor};
 
-/// Instrument detail view: ticker summary + order book + recent trades
+/// Instrument detail view: ticker summary + order book + recent trades.
+/// 8-arg signature is a deliberate trade-off — bundling would hide which
+/// fields are pure inputs vs. which come from app state.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_detail(
     frame: &mut Frame,
     area: Rect,
@@ -14,6 +18,7 @@ pub fn draw_detail(
     state: &AppState,
     book_data: &Option<serde_json::Value>,
     book_depth: usize,
+    book_cursor: Option<BookCursor>,
     recent_trades: &[serde_json::Value],
 ) {
     let [header_area, body_area, footer_area] = Layout::vertical([
@@ -80,7 +85,15 @@ pub fn draw_detail(
             .areas(body_area);
 
     // Order book
-    draw_book(frame, book_area, state, instrument, book_data, book_depth);
+    draw_book(
+        frame,
+        book_area,
+        state,
+        instrument,
+        book_data,
+        book_depth,
+        book_cursor,
+    );
 
     // Recent trades
     draw_trades(frame, trades_area, state, recent_trades);
@@ -89,7 +102,7 @@ pub fn draw_detail(
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             format!(
-                "Esc:back to table  k:candlestick chart  D:depth({})  t:trade",
+                "Esc:back  \u{2191}\u{2193}:level  k:chart  D:depth({})  t:trade",
                 book_depth
             ),
             Style::default().fg(state.theme.colors.muted),
@@ -105,11 +118,20 @@ fn draw_book(
     instrument: &str,
     book_data: &Option<serde_json::Value>,
     book_depth: usize,
+    book_cursor: Option<BookCursor>,
 ) {
+    // Title indicates cursor mode so the user notices the context-line
+    // swap below — otherwise the pressure bar disappearing would be
+    // surprising.
+    let title = if book_cursor.is_some() {
+        format!(" Order Book ({}) \u{2014} cursor ", book_depth)
+    } else {
+        format!(" Order Book ({}) ", book_depth)
+    };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(state.theme.colors.border))
-        .title(format!(" Order Book ({}) ", book_depth));
+        .title(title);
     let full_inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -198,7 +220,10 @@ fn draw_book(
 
     let mut rows: Vec<Row> = Vec::new();
 
-    // Asks (reversed: furthest from spread at top, closest at bottom)
+    // Asks (reversed: furthest from spread at top, closest at bottom).
+    // The cursor, when it's an Ask, is expressed in top-of-book-indexing
+    // (0 = best ask), which is the enumerate order — matches the `i` we
+    // loop over here even though the *render* order is reversed.
     for (i, (price, qty_str, _)) in ask_levels.iter().enumerate().rev() {
         let cum_qty = ask_cum[i];
         let bar = depth_bar(cum_qty, max_cum, 20);
@@ -208,13 +233,23 @@ fn draw_book(
             0.0
         };
         let bar_color = intensity_color(state.theme.colors.negative, intensity);
-        rows.push(Row::new(vec![
+        let selected = book_cursor == Some(BookCursor::Ask(i));
+        let row = Row::new(vec![
             Cell::from(price.clone()).style(Style::default().fg(state.theme.colors.negative)),
             Cell::from(qty_str.clone()).style(Style::default().fg(state.theme.colors.fg)),
             Cell::from(format!("{:.5}", cum_qty))
                 .style(Style::default().fg(state.theme.colors.muted)),
             Cell::from(bar).style(Style::default().fg(bar_color)),
-        ]));
+        ]);
+        rows.push(if selected {
+            row.style(
+                Style::default()
+                    .bg(state.theme.colors.selected_bg)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            row
+        });
     }
 
     // Current price row (spread midpoint)
@@ -238,7 +273,7 @@ fn draw_book(
         ]));
     }
 
-    // Bids
+    // Bids — rendered top-down (best bid first), matches cursor indexing.
     for (i, (price, qty_str, _)) in bid_levels.iter().enumerate() {
         let cum_qty = bid_cum[i];
         let bar = depth_bar(cum_qty, max_cum, 20);
@@ -248,17 +283,43 @@ fn draw_book(
             0.0
         };
         let bar_color = intensity_color(state.theme.colors.positive, intensity);
-        rows.push(Row::new(vec![
+        let selected = book_cursor == Some(BookCursor::Bid(i));
+        let row = Row::new(vec![
             Cell::from(price.clone()).style(Style::default().fg(state.theme.colors.positive)),
             Cell::from(qty_str.clone()).style(Style::default().fg(state.theme.colors.fg)),
             Cell::from(format!("{:.5}", cum_qty))
                 .style(Style::default().fg(state.theme.colors.muted)),
             Cell::from(bar).style(Style::default().fg(bar_color)),
-        ]));
+        ]);
+        rows.push(if selected {
+            row.style(
+                Style::default()
+                    .bg(state.theme.colors.selected_bg)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            row
+        });
     }
 
     let table = Table::new(rows, widths).header(header).column_spacing(1);
     frame.render_widget(table, inner);
+
+    // When a cursor is active, the bottom row shows cumulative stats for
+    // the selected level instead of the buy/sell pressure bar. One row of
+    // vertical real estate is unchanged either way.
+    if let Some(cur) = book_cursor {
+        draw_cursor_readout(
+            frame,
+            pressure_area,
+            state,
+            &ask_levels,
+            &bid_levels,
+            cur,
+            instrument,
+        );
+        return;
+    }
 
     // Pressure bar — full width, rendered as a Paragraph below the table
     let total_ask: f64 = ask_levels.iter().map(|(_, _, q)| q).sum();
@@ -303,6 +364,66 @@ fn draw_book(
         ]);
         frame.render_widget(Paragraph::new(line), pressure_area);
     }
+}
+
+/// Cumulative readout for the selected level. Replaces the pressure bar
+/// at the bottom of the book panel when a cursor is active. Shows: which
+/// side + index, the level's price, its cumulative qty from top-of-book,
+/// the corresponding cumulative notional (Σ price × qty), and the
+/// distance from the mid price in basis points.
+fn draw_cursor_readout(
+    frame: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    ask_levels: &[(String, String, f64)],
+    bid_levels: &[(String, String, f64)],
+    cursor: BookCursor,
+    instrument: &str,
+) {
+    // The cursor should always be valid here — callers clamp on book
+    // updates — but the panel can still shrink between clamp and render,
+    // so we do a safe `.get()` rather than index.
+    let (side_label, levels, idx, price_color) = match cursor {
+        BookCursor::Ask(i) => ("ASK", ask_levels, i, state.theme.colors.negative),
+        BookCursor::Bid(i) => ("BID", bid_levels, i, state.theme.colors.positive),
+    };
+    let Some((price_str, qty_str, _qty_f)) = levels.get(idx) else {
+        return;
+    };
+    let price: f64 = price_str.parse().unwrap_or(0.0);
+
+    let level_pairs: Vec<(f64, f64)> = levels
+        .iter()
+        .map(|(p, _, q)| (p.parse::<f64>().unwrap_or(0.0), *q))
+        .collect();
+    let (cum_qty, cum_notional) = cumulative_at(&level_pairs, idx);
+
+    let mid = state
+        .tickers
+        .get(instrument)
+        .map(|t| t.ask)
+        .unwrap_or(price);
+    let bps = bps_from_mid(price, mid);
+
+    let readout = format!(
+        "{} #{}  p={}  q={}  cum_q={:.5}  cum_$={:.0}  \u{0394}mid={:+.1}bps",
+        side_label,
+        idx + 1,
+        price_str,
+        qty_str,
+        cum_qty,
+        cum_notional,
+        bps,
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            readout,
+            Style::default()
+                .fg(price_color)
+                .add_modifier(Modifier::BOLD),
+        ))),
+        area,
+    );
 }
 
 fn draw_trades(frame: &mut Frame, area: Rect, state: &AppState, trades: &[serde_json::Value]) {
