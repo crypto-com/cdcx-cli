@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cdcx": {
+      "command": "cdcx",
+      "args": ["mcp", "--services", "market"]
+    }
+  }
+}
