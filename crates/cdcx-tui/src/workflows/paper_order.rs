@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::state::AppState;
-use crate::workflows::{modal_area, Workflow, WorkflowResult};
+use crate::workflows::{modal_area, TradePrefill, Workflow, WorkflowResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
@@ -41,6 +41,25 @@ impl PaperOrderWorkflow {
             order_type: 0,
             price_input: String::new(),
             qty_input: String::new(),
+            result_msg: None,
+            result_ok: false,
+            error: None,
+        }
+    }
+
+    /// Build a paper workflow pre-filled from the Market book cursor.
+    /// Mirrors `PlaceOrderWorkflow::new_with_prefill`. Paper's order_type
+    /// encoding is inverted (0 = MARKET, 1 = LIMIT) vs live, so the LIMIT
+    /// mapping differs — worth a comment to save the next reader a trip
+    /// to the Step enum.
+    pub fn new_with_prefill(instrument: String, prefill: TradePrefill) -> Self {
+        Self {
+            instrument,
+            step: Step::Confirm,
+            side: if prefill.side == "SELL" { 1 } else { 0 },
+            order_type: 1, // LIMIT (paper inverts: 0 = MARKET, 1 = LIMIT)
+            price_input: prefill.price,
+            qty_input: prefill.qty,
             result_msg: None,
             result_ok: false,
             error: None,

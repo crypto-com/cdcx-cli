@@ -379,6 +379,26 @@ impl App {
             .map(|tab| tab.on_key(key, &mut self.state))
             .unwrap_or(false);
 
+        // Handle staged trade prefill from the Market book cursor. The
+        // tab staged a (instrument, prefill) pair; we materialize it into
+        // the appropriate workflow here because only `App` owns the
+        // workflow slot.
+        if let Some((instrument, prefill)) = self.state.pending_trade_from_book.take() {
+            if self.state.paper_mode {
+                self.workflow = Some(Box::new(PaperOrderWorkflow::new_with_prefill(
+                    instrument, prefill,
+                )));
+            } else {
+                self.workflow = Some(Box::new(PlaceOrderWorkflow::new_with_prefill(
+                    instrument,
+                    &self.state,
+                    prefill,
+                )));
+            }
+            self.mode = Mode::Workflow;
+            return;
+        }
+
         // Handle cross-tab navigation requests (e.g. watchlist Enter → market detail)
         if let Some((target_tab, instrument)) = self.state.pending_navigation.take() {
             let origin_tab = TabKind::ALL[self.active_tab];
@@ -1041,6 +1061,7 @@ const HELP_PAGES: &[HelpPage] = &[
                 bindings: &[
                     ("Esc", "Clear cursor / back to table"),
                     ("\u{2191}\u{2193}", "Move book cursor between levels"),
+                    ("Enter", "Place LIMIT at cursor level (prefills modal)"),
                     ("k", "Switch to candlestick chart"),
                     ("m", "Switch to compare view"),
                     ("D", "Cycle order-book depth (10/50/150)"),
@@ -1238,6 +1259,7 @@ mod tests {
             volume_unit: crate::state::VolumeUnit::Usd,
             pending_navigation: None,
             pending_return_tab: None,
+            pending_trade_from_book: None,
             instrument_types: std::collections::HashMap::new(),
             user_connection: crate::state::ConnectionStatus::Error,
             isolated_positions: std::collections::HashMap::new(),
@@ -1531,5 +1553,35 @@ mod tests {
         app.show_help = true;
         app.on_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(!app.show_help, "Esc must dismiss help");
+    }
+
+    /// When MarketTab stages a trade prefill in `pending_trade_from_book`,
+    /// the next app-level key tick must consume it and flip into
+    /// Workflow mode with the PlaceOrderWorkflow active. The inverse
+    /// (paper mode → PaperOrderWorkflow) is covered by code review +
+    /// manual QA; here we pin the live path which is the hot one.
+    #[test]
+    fn app_consumes_staged_trade_prefill_into_workflow() {
+        let mut app = make_app();
+        app.state.paper_mode = false;
+        app.state.pending_trade_from_book = Some((
+            "BTC_USDT".into(),
+            crate::workflows::TradePrefill {
+                side: "BUY",
+                price: "78550.2".into(),
+                qty: "0.125".into(),
+            },
+        ));
+
+        // Send any no-op key through the main dispatch path. The prefill
+        // handler runs after tab.on_key and must pick up the stage.
+        app.on_key(KeyEvent::new(KeyCode::Null, KeyModifiers::NONE));
+
+        assert!(
+            app.state.pending_trade_from_book.is_none(),
+            "prefill must be consumed"
+        );
+        assert_eq!(app.mode, Mode::Workflow);
+        assert!(app.workflow.is_some(), "workflow must have been created");
     }
 }

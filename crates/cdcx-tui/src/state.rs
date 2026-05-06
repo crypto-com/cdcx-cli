@@ -124,6 +124,12 @@ pub struct AppState {
     pub pending_navigation: Option<(crate::tabs::TabKind, String)>,
     /// Return to a previous tab (e.g. Esc from detail navigated via another tab).
     pub pending_return_tab: Option<crate::tabs::TabKind>,
+    /// Staged trade parameters from the Market book cursor. A non-None
+    /// value means "Enter was pressed on a selected book level — open the
+    /// place-order workflow with these pre-filled". Consumed by app.rs
+    /// after the tab's `on_key` returns. Mirrors the `pending_navigation`
+    /// pattern — tab signals intent, app.rs instantiates the modal.
+    pub pending_trade_from_book: Option<(String, crate::workflows::TradePrefill)>,
     /// instrument_name → isolation_id for currently-open isolated-margin positions.
     /// Populated from `user.positions` WS channel + `private/get-positions` REST responses.
     /// Required to add to / trim an existing isolated position without triggering error 617.

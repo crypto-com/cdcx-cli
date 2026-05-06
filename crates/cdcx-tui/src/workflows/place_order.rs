@@ -6,7 +6,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::state::{AppState, RestRequest};
-use crate::workflows::{modal_area, Workflow, WorkflowResult};
+use crate::workflows::{modal_area, TradePrefill, Workflow, WorkflowResult};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Step {
@@ -59,6 +59,31 @@ impl PlaceOrderWorkflow {
             order_type: 0,
             price_input: String::new(),
             qty_input: String::new(),
+            error: None,
+            isolated_margin: isolated_default,
+            rejection: None,
+        }
+    }
+
+    /// Build a workflow pre-filled from the Market book cursor. Skips
+    /// straight to `Step::Confirm` so the user sees the full summary and
+    /// presses Enter once to submit; they can Shift+Tab back to edit any
+    /// field. LIMIT-only — the prefill DTO enforces this (see
+    /// `workflows::TradePrefill`).
+    pub fn new_with_prefill(instrument: String, state: &AppState, prefill: TradePrefill) -> Self {
+        let isolated_default = state
+            .instrument_types
+            .get(&instrument)
+            .map(|t| requires_isolated_margin(t))
+            .unwrap_or(false);
+        Self {
+            instrument_input: instrument.clone(),
+            instrument,
+            step: Step::Confirm,
+            side: if prefill.side == "SELL" { 1 } else { 0 },
+            order_type: 0, // LIMIT
+            price_input: prefill.price,
+            qty_input: prefill.qty,
             error: None,
             isolated_margin: isolated_default,
             rejection: None,
