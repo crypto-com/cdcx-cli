@@ -24,6 +24,7 @@
     "linux"
   ],
   "files": [
+    "README.md",
     "install.sh",
     "npm/bin.mjs",
     "npm/lib.mjs",
