@@ -8,6 +8,8 @@ import { fileURLToPath } from "url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function findBinary() {
+  const local = join(__dirname, "..", "cdcx");
+  if (existsSync(local)) return local;
   try {
     return execSync("command -v cdcx", { encoding: "utf8" }).trim();
   } catch {
