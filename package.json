@@ -1,0 +1,33 @@
+{
+  "name": "@cryptocom/cdcx-cli",
+  "version": "1.2.0",
+  "description": "MCP server for crypto.com exchange CLI",
+  "author": "Crypto.com",
+  "homepage": "https://github.com/crypto-com/cdcx-cli",
+  "license": "MIT",
+  "keywords": [
+    "crypto.com",
+    "crypto",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "repository": {
+    "url": "https://github.com/crypto-com/cdcx-cli.git",
+    "type": "git"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "module",
+  "files": [
+    "install.sh",
+    "npm/bin.mjs",
+    "npm/post-install.mjs"
+  ],
+  "bin": {
+    "cdcx-cli": "./npm/bin.mjs"
+  },
+  "scripts": {
+    "postinstall": "node ./npm/post-install.mjs"
+  }
+}
