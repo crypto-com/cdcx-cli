@@ -19,7 +19,7 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 tracing-subscriber = "0.3"
-rmcp = { version = "1.2", features = ["server", "transport-io"] }
+rmcp = { version = "1.4", features = ["server", "transport-io"] }
 rpassword = "7"
 toml = "0.8"
 
