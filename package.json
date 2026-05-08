@@ -4,7 +4,7 @@
   "description": "MCP server for crypto.com exchange CLI",
   "author": "Crypto.com",
   "homepage": "https://github.com/crypto-com/cdcx-cli",
-  "license": "MIT",
+  "license": "MIT OR Apache-2.0",
   "keywords": [
     "crypto.com",
     "crypto",
@@ -19,9 +19,14 @@
     "node": ">=20.0.0"
   },
   "type": "module",
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "files": [
     "install.sh",
     "npm/bin.mjs",
+    "npm/lib.mjs",
     "npm/post-install.mjs"
   ],
   "bin": {

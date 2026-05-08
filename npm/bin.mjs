@@ -1,47 +1,29 @@
 #!/usr/bin/env node
 
-import { execFileSync, execSync } from "child_process";
+import { execFileSync } from "child_process";
 import { existsSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-function findBinary() {
-  const local = join(__dirname, "..", "cdcx");
-  if (existsSync(local)) return local;
-  try {
-    return execSync("command -v cdcx", { encoding: "utf8" }).trim();
-  } catch {
-    return null;
-  }
-}
-
-function install(dir) {
-  const script = join(__dirname, "..", "install.sh");
-  if (!existsSync(script)) {
-    process.stderr.write(
-      "cdcx not found. Install it: curl -sSfL https://raw.githubusercontent.com/crypto-com/cdcx-cli/main/install.sh | sh\n"
-    );
-    process.exit(1);
-  }
-  const env = dir ? { ...process.env, INSTALL_DIR: dir } : process.env;
-  execFileSync("sh", [script], { stdio: "inherit", env });
-}
+import { findBinary, install, ROOT_DIR, LOCAL_BIN } from "./lib.mjs";
 
 let bin = findBinary();
 if (!bin) {
-  install();
+  try {
+    install();
+  } catch {
+    // global install failed — fall through to local attempt
+  }
   bin = findBinary();
   if (!bin) {
-    const localDir = join(__dirname, "..");
-    install(localDir);
-    const localBin = join(localDir, "cdcx");
-    if (!existsSync(localBin)) {
+    try {
+      install(ROOT_DIR);
+    } catch {
+      process.stderr.write("cdcx installation failed.\n");
+      process.exit(1);
+    }
+    if (!existsSync(LOCAL_BIN)) {
       process.stderr.write("cdcx installation failed — binary not found.\n");
       process.exit(1);
     }
-    bin = localBin;
+    bin = LOCAL_BIN;
   }
 }
 
