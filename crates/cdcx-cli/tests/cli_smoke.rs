@@ -462,3 +462,72 @@ fn test_json_merge_dry_run() {
         .stdout(predicates::str::contains("BTC_USDT"))
         .stdout(predicates::str::contains("dry_run"));
 }
+
+#[test]
+fn test_update_help() {
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["update", "--help"])
+        .assert()
+        .success()
+        .stdout(str::contains("--check"))
+        .stdout(str::contains("--disable"))
+        .stdout(str::contains("--enable"));
+}
+
+#[test]
+fn test_update_help_hides_global_flags() {
+    let output = Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["update", "--help"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(!stdout.contains("--dry-run"), "should hide --dry-run");
+    assert!(!stdout.contains("--json"), "should hide --json");
+    assert!(!stdout.contains("--profile"), "should hide --profile");
+    assert!(!stdout.contains("--output"), "should hide --output");
+    assert!(!stdout.contains("--env"), "should hide --env");
+    assert!(!stdout.contains("--yes"), "should hide --yes");
+}
+
+#[test]
+fn test_update_disable_writes_config() {
+    use std::fs;
+    let dir = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["update", "--disable"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("disabled"));
+
+    let content = fs::read_to_string(dir.path().join(".config/cdcx/config.toml")).unwrap();
+    assert!(content.contains("disable_update_check = true"));
+}
+
+#[test]
+fn test_update_enable_after_disable() {
+    use std::fs;
+    let dir = tempfile::tempdir().unwrap();
+    let config_dir = dir.path().join(".config/cdcx");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        "disable_update_check = true\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["update", "--enable"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("enabled"));
+
+    let content = fs::read_to_string(config_dir.join("config.toml")).unwrap();
+    assert!(content.contains("disable_update_check = false"));
+}
