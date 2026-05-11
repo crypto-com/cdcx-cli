@@ -210,12 +210,27 @@ pub fn build_static_cli() -> clap::Command {
                     .help("Enable automatic update checks"),
             )
             // overwrite global arguments that don't apply to update command.
-            .arg(clap::Arg::new("yes").long("yes").hide(true).action(clap::ArgAction::SetTrue))
-            .arg(clap::Arg::new("dry_run").long("dry-run").hide(true).action(clap::ArgAction::SetTrue))
+            .arg(
+                clap::Arg::new("yes")
+                    .long("yes")
+                    .hide(true)
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                clap::Arg::new("dry_run")
+                    .long("dry-run")
+                    .hide(true)
+                    .action(clap::ArgAction::SetTrue),
+            )
             .arg(clap::Arg::new("profile").long("profile").hide(true))
             .arg(clap::Arg::new("env").long("env").hide(true))
             .arg(clap::Arg::new("json_input").long("json").hide(true))
-            .arg(clap::Arg::new("output").short('o').long("output").hide(true)),
+            .arg(
+                clap::Arg::new("output")
+                    .short('o')
+                    .long("output")
+                    .hide(true),
+            ),
     );
 
     app
