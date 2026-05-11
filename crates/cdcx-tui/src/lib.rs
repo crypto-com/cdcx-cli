@@ -177,7 +177,11 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         });
 
         // Background update check — runs in parallel with instruments + tickers fetch
-        {
+        let update_check_disabled = cdcx_config
+            .as_ref()
+            .map(|c| c.disable_update_check)
+            .unwrap_or(false);
+        if !update_check_disabled {
             let update_tx = update_tx.clone();
             let update_info = update_info.clone();
             tokio::spawn(async move {

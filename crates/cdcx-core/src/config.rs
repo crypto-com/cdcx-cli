@@ -17,6 +17,8 @@ pub struct Config {
     pub default: Option<ProfileConfig>,
     #[serde(default)]
     pub profiles: Option<HashMap<String, ProfileConfig>>,
+    #[serde(default)]
+    pub disable_update_check: bool,
 }
 
 /// Check that a config file and its parent directory have owner-only permissions.

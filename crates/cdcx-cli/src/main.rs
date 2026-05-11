@@ -72,19 +72,26 @@ async fn main() {
 
     // Background update check — fire-and-forget, throttled to once per day.
     {
-        let checker = cdcx_core::update::UpdateChecker::default();
-        if checker.should_check() {
-            tokio::spawn(async move {
-                if let Ok(info) = checker.fetch_latest().await {
-                    let current = env!("CARGO_PKG_VERSION");
-                    if cdcx_core::update::is_newer(&info.version, current) {
-                        eprintln!(
-                            "\nUpdate available: {} → {} — run `cdcx update` to install\n",
-                            current, info.version,
-                        );
+        let update_disabled = cdcx_core::config::Config::load_default()
+            .ok()
+            .flatten()
+            .map(|c| c.disable_update_check)
+            .unwrap_or(false);
+        if !update_disabled {
+            let checker = cdcx_core::update::UpdateChecker::default();
+            if checker.should_check() {
+                tokio::spawn(async move {
+                    if let Ok(info) = checker.fetch_latest().await {
+                        let current = env!("CARGO_PKG_VERSION");
+                        if cdcx_core::update::is_newer(&info.version, current) {
+                            eprintln!(
+                                "\nUpdate available: {} → {} — run `cdcx update` to install\n",
+                                current, info.version,
+                            );
+                        }
                     }
-                }
-            });
+                });
+            }
         }
     }
 
