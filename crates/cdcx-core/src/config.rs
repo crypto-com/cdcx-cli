@@ -17,6 +17,8 @@ pub struct Config {
     pub default: Option<ProfileConfig>,
     #[serde(default)]
     pub profiles: Option<HashMap<String, ProfileConfig>>,
+    #[serde(default)]
+    pub disable_update_check: bool,
 }
 
 /// Check that a config file and its parent directory have owner-only permissions.
@@ -260,6 +262,54 @@ environment = "uat"
         let toml = "[default]\napi_key = \"k\"\napi_secret = \"s\"\nenvironment = \"production\"\n";
         let config = Config::parse(toml).unwrap();
         assert!(config.profile(Some("nonexistent")).is_err());
+    }
+
+    #[test]
+    fn test_disable_update_check_defaults_false() {
+        let toml = r#"
+[default]
+api_key = "k"
+api_secret = "s"
+environment = "production"
+"#;
+        let config = Config::parse(toml).unwrap();
+        assert!(!config.disable_update_check);
+    }
+
+    #[test]
+    fn test_disable_update_check_true() {
+        let toml = r#"
+disable_update_check = true
+
+[default]
+api_key = "k"
+api_secret = "s"
+environment = "production"
+"#;
+        let config = Config::parse(toml).unwrap();
+        assert!(config.disable_update_check);
+    }
+
+    #[test]
+    fn test_disable_update_check_false() {
+        let toml = r#"
+disable_update_check = false
+
+[default]
+api_key = "k"
+api_secret = "s"
+environment = "production"
+"#;
+        let config = Config::parse(toml).unwrap();
+        assert!(!config.disable_update_check);
+    }
+
+    #[test]
+    fn test_disable_update_check_without_credentials() {
+        let toml = "disable_update_check = true\n";
+        let config = Config::parse(toml).unwrap();
+        assert!(config.disable_update_check);
+        assert!(config.default.is_none());
     }
 
     #[cfg(unix)]

@@ -30,7 +30,7 @@ cdcx mcp --services market
 
 MCP config:
 ```json
-{"command":"cdcx","args":["mcp","--services","market"]}
+{"command":"npx","args":["-y","@cryptocom/cdcx-cli@latest","mcp","--services","market"]}
 ```
 
 Use for: market research agents, price alerts, chart commentary.

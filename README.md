@@ -34,8 +34,8 @@ cdcx mcp --services market,account,trade
 {
   "mcpServers": {
     "cdcx": {
-      "command": "cdcx",
-      "args": ["mcp", "--services", "market,account,trade"]
+      "command": "npx",
+      "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp", "--services", "market,account,trade"]
     }
   }
 }
@@ -167,8 +167,8 @@ codex plugin marketplace add crypto-com/cdcx-cli
 ```json
 {
   "cdcx": {
-    "command": "cdcx",
-    "args": ["mcp", "--services", "market"]
+    "command": "npx",
+    "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp", "--services", "market"]
   }
 }
 ```

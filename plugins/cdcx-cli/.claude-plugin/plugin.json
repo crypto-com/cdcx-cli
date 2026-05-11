@@ -35,8 +35,8 @@
   },
   "mcpServers": {
     "cdcx": {
-      "command": "cdcx",
-      "args": ["mcp", "--services", "market"],
+      "command": "npx",
+      "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp", "--services", "market"],
       "env": {
         "CDC_API_KEY": "${user_config.api_key}",
         "CDC_API_SECRET": "${user_config.api_secret}"

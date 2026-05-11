@@ -70,21 +70,30 @@ async fn main() {
         }
     }
 
+    // Load config once — used for update check and available to subcommands.
+    let cdcx_config = cdcx_core::config::Config::load_default().ok().flatten();
+
     // Background update check — fire-and-forget, throttled to once per day.
     {
-        let checker = cdcx_core::update::UpdateChecker::default();
-        if checker.should_check() {
-            tokio::spawn(async move {
-                if let Ok(info) = checker.fetch_latest().await {
-                    let current = env!("CARGO_PKG_VERSION");
-                    if cdcx_core::update::is_newer(&info.version, current) {
-                        eprintln!(
-                            "\nUpdate available: {} → {} — run `cdcx update` to install\n",
-                            current, info.version,
-                        );
+        let update_disabled = cdcx_config
+            .as_ref()
+            .map(|c| c.disable_update_check)
+            .unwrap_or(false);
+        if !update_disabled {
+            let checker = cdcx_core::update::UpdateChecker::default();
+            if checker.should_check() {
+                tokio::spawn(async move {
+                    if let Ok(info) = checker.fetch_latest().await {
+                        let current = env!("CARGO_PKG_VERSION");
+                        if cdcx_core::update::is_newer(&info.version, current) {
+                            eprintln!(
+                                "\nUpdate available: {} → {} — run `cdcx update` to install\n",
+                                current, info.version,
+                            );
+                        }
                     }
-                }
-            });
+                });
+            }
         }
     }
 
@@ -173,11 +182,31 @@ async fn main() {
         }
         Some(("update", sub)) => {
             let check_only = sub.get_flag("check");
-            match dispatch::run_update(check_only).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("{}", format_error(&e.to_envelope(), format));
-                    std::process::exit(1);
+            let disable = sub.get_flag("disable");
+            let enable = sub.get_flag("enable");
+            if disable {
+                match dispatch::set_update_check(false) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e.to_envelope(), format));
+                        std::process::exit(1);
+                    }
+                }
+            } else if enable {
+                match dispatch::set_update_check(true) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e.to_envelope(), format));
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match dispatch::run_update(check_only).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e.to_envelope(), format));
+                        std::process::exit(1);
+                    }
                 }
             }
         }

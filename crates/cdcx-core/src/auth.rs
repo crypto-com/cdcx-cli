@@ -70,6 +70,7 @@ mod tests {
                 environment: "production".into(),
             }),
             profiles: None,
+            disable_update_check: false,
         };
         let creds = Credentials::resolve(Some(&config), None).unwrap();
         assert_eq!(creds.api_key, "cfg_key");

@@ -15,6 +15,11 @@
       "additionalProperties": {
         "$ref": "#/$defs/profile"
       }
+    },
+    "disable_update_check": {
+      "type": "boolean",
+      "default": false,
+      "description": "Disable automatic update checking in both CLI and TUI"
     }
   },
   "$defs": {

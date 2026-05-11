@@ -187,7 +187,7 @@ pub fn build_static_cli() -> clap::Command {
             ),
     );
 
-    // Update subcommand
+    // Update subcommand — override global args as hidden since they don't apply here
     app = app.subcommand(
         clap::Command::new("update")
             .about("Check for and install updates")
@@ -196,6 +196,42 @@ pub fn build_static_cli() -> clap::Command {
                     .long("check")
                     .action(clap::ArgAction::SetTrue)
                     .help("Only check for updates, don't install"),
+            )
+            .arg(
+                clap::Arg::new("disable")
+                    .long("disable")
+                    .action(clap::ArgAction::SetTrue)
+                    .conflicts_with("enable")
+                    .help("Disable automatic update checks"),
+            )
+            .arg(
+                clap::Arg::new("enable")
+                    .long("enable")
+                    .action(clap::ArgAction::SetTrue)
+                    .conflicts_with("disable")
+                    .help("Enable automatic update checks"),
+            )
+            // overwrite global arguments that don't apply to update command.
+            .arg(
+                clap::Arg::new("yes")
+                    .long("yes")
+                    .hide(true)
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                clap::Arg::new("dry_run")
+                    .long("dry-run")
+                    .hide(true)
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(clap::Arg::new("profile").long("profile").hide(true))
+            .arg(clap::Arg::new("env").long("env").hide(true))
+            .arg(clap::Arg::new("json_input").long("json").hide(true))
+            .arg(
+                clap::Arg::new("output")
+                    .short('o')
+                    .long("output")
+                    .hide(true),
             ),
     );
 

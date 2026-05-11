@@ -184,6 +184,7 @@ mod tests {
                 environment: "uat".into(),
             }),
             profiles: None,
+            disable_update_check: false,
         };
         // Explicit flag overrides config
         assert_eq!(
@@ -209,6 +210,7 @@ mod tests {
                 environment: "uat".into(),
             }),
             profiles: None,
+            disable_update_check: false,
         };
         assert_eq!(
             Environment::resolve(None, Some(&config), None).unwrap(),
