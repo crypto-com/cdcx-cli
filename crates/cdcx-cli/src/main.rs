@@ -180,11 +180,31 @@ async fn main() {
         }
         Some(("update", sub)) => {
             let check_only = sub.get_flag("check");
-            match dispatch::run_update(check_only).await {
-                Ok(_) => {}
-                Err(e) => {
-                    eprintln!("{}", format_error(&e.to_envelope(), format));
-                    std::process::exit(1);
+            let disable = sub.get_flag("disable");
+            let enable = sub.get_flag("enable");
+            if disable {
+                match dispatch::set_update_check(false) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e.to_envelope(), format));
+                        std::process::exit(1);
+                    }
+                }
+            } else if enable {
+                match dispatch::set_update_check(true) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e.to_envelope(), format));
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                match dispatch::run_update(check_only).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("{}", format_error(&e.to_envelope(), format));
+                        std::process::exit(1);
+                    }
                 }
             }
         }

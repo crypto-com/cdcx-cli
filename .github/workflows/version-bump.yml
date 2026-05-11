@@ -1,0 +1,38 @@
+name: Version Bump
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version (e.g. 1.0.0)"
+        required: true
+        type: string
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version format. Expected semver (e.g. 1.3.0)"
+            exit 1
+          fi
+
+      - name: Update Cargo.toml workspace version
+        run: sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
+
+      - name: Update package.json version
+        run: |
+          jq --arg v "${{ inputs.version }}" '.version = $v' package.json > package.json.tmp
+          mv package.json.tmp package.json
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml package.json
+          git commit -m "chore: bump version to ${{ inputs.version }}"
+          git push

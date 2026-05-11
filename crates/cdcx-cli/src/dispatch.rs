@@ -532,6 +532,57 @@ pub async fn run_stream(
     Ok(serde_json::json!({"stream": "completed"}))
 }
 
+pub fn set_update_check(enabled: bool) -> Result<(), CdcxError> {
+    let path = cdcx_core::config::Config::default_path()
+        .ok_or_else(|| CdcxError::Config("Cannot determine home directory".into()))?;
+
+    let disabled_value = if enabled { "false" } else { "true" };
+    let line = format!("disable_update_check = {disabled_value}");
+
+    if path.exists() {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| CdcxError::Config(format!("Failed to read config: {e}")))?;
+        if content.contains("disable_update_check") {
+            let updated = content
+                .lines()
+                .map(|l| {
+                    if l.trim_start().starts_with("disable_update_check") {
+                        line.as_str()
+                    } else {
+                        l
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            std::fs::write(&path, updated)
+                .map_err(|e| CdcxError::Config(format!("Failed to write config: {e}")))?;
+        } else if !enabled {
+            let updated = format!("{}\n{line}\n", content.trim_end());
+            std::fs::write(&path, updated)
+                .map_err(|e| CdcxError::Config(format!("Failed to write config: {e}")))?;
+        }
+    } else if !enabled {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CdcxError::Config(format!("Failed to create config dir: {e}")))?;
+            cdcx_core::config::set_dir_owner_only(parent)
+                .map_err(|e| CdcxError::Config(format!("Failed to set dir permissions: {e}")))?;
+        }
+        std::fs::write(&path, format!("{line}\n"))
+            .map_err(|e| CdcxError::Config(format!("Failed to write config: {e}")))?;
+        cdcx_core::config::set_file_owner_only(&path)
+            .map_err(|e| CdcxError::Config(format!("Failed to set file permissions: {e}")))?;
+    }
+
+    if enabled {
+        eprintln!("Automatic update checks enabled.");
+    } else {
+        eprintln!("Automatic update checks disabled.");
+        eprintln!("Run `cdcx update` manually to check for updates.");
+    }
+    Ok(())
+}
+
 pub async fn run_update(check_only: bool) -> Result<(), CdcxError> {
     use cdcx_core::update::{download_and_install, is_newer, UpdateChecker};
 
