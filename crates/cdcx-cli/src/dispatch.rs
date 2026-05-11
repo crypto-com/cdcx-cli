@@ -542,7 +542,11 @@ pub fn set_update_check(enabled: bool) -> Result<(), CdcxError> {
     if path.exists() {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| CdcxError::Config(format!("Failed to read config: {e}")))?;
-        let eol = if content.contains("\r\n") { "\r\n" } else { "\n" };
+        let eol = if content.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
         if content.contains("disable_update_check") {
             let updated = content
                 .split(eol)
