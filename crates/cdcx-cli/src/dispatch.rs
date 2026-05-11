@@ -537,27 +537,29 @@ pub fn set_update_check(enabled: bool) -> Result<(), CdcxError> {
         .ok_or_else(|| CdcxError::Config("Cannot determine home directory".into()))?;
 
     let disabled_value = if enabled { "false" } else { "true" };
-    let line = format!("disable_update_check = {disabled_value}");
+    let new_line = format!("disable_update_check = {disabled_value}");
 
     if path.exists() {
         let content = std::fs::read_to_string(&path)
             .map_err(|e| CdcxError::Config(format!("Failed to read config: {e}")))?;
+        let eol = if content.contains("\r\n") { "\r\n" } else { "\n" };
         if content.contains("disable_update_check") {
             let updated = content
-                .lines()
+                .split(eol)
                 .map(|l| {
-                    if l.trim_start().starts_with("disable_update_check") {
-                        line.as_str()
+                    let key = l.trim_start().split('=').next().unwrap_or("").trim();
+                    if key == "disable_update_check" {
+                        new_line.as_str()
                     } else {
                         l
                     }
                 })
                 .collect::<Vec<_>>()
-                .join("\n");
+                .join(eol);
             std::fs::write(&path, updated)
                 .map_err(|e| CdcxError::Config(format!("Failed to write config: {e}")))?;
         } else if !enabled {
-            let updated = format!("{}\n{line}\n", content.trim_end());
+            let updated = format!("{}{eol}{new_line}{eol}", content.trim_end());
             std::fs::write(&path, updated)
                 .map_err(|e| CdcxError::Config(format!("Failed to write config: {e}")))?;
         }
@@ -568,7 +570,7 @@ pub fn set_update_check(enabled: bool) -> Result<(), CdcxError> {
             cdcx_core::config::set_dir_owner_only(parent)
                 .map_err(|e| CdcxError::Config(format!("Failed to set dir permissions: {e}")))?;
         }
-        std::fs::write(&path, format!("{line}\n"))
+        std::fs::write(&path, format!("{new_line}\n"))
             .map_err(|e| CdcxError::Config(format!("Failed to write config: {e}")))?;
         cdcx_core::config::set_file_owner_only(&path)
             .map_err(|e| CdcxError::Config(format!("Failed to set file permissions: {e}")))?;

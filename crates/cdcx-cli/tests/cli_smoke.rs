@@ -492,6 +492,7 @@ fn test_update_help_hides_global_flags() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_update_disable_writes_config() {
     use std::fs;
     let dir = tempfile::tempdir().unwrap();
@@ -509,6 +510,7 @@ fn test_update_disable_writes_config() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_update_enable_after_disable() {
     use std::fs;
     let dir = tempfile::tempdir().unwrap();

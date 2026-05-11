@@ -70,11 +70,13 @@ async fn main() {
         }
     }
 
+    // Load config once — used for update check and available to subcommands.
+    let cdcx_config = cdcx_core::config::Config::load_default().ok().flatten();
+
     // Background update check — fire-and-forget, throttled to once per day.
     {
-        let update_disabled = cdcx_core::config::Config::load_default()
-            .ok()
-            .flatten()
+        let update_disabled = cdcx_config
+            .as_ref()
             .map(|c| c.disable_update_check)
             .unwrap_or(false);
         if !update_disabled {

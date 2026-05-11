@@ -201,12 +201,14 @@ pub fn build_static_cli() -> clap::Command {
                 clap::Arg::new("disable")
                     .long("disable")
                     .action(clap::ArgAction::SetTrue)
+                    .conflicts_with("enable")
                     .help("Disable automatic update checks"),
             )
             .arg(
                 clap::Arg::new("enable")
                     .long("enable")
                     .action(clap::ArgAction::SetTrue)
+                    .conflicts_with("disable")
                     .help("Enable automatic update checks"),
             )
             // overwrite global arguments that don't apply to update command.

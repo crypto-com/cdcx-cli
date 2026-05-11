@@ -13,7 +13,7 @@ function isUpdateDisabled() {
     const configPath = join(homedir(), ".config", "cdcx", "config.toml");
     if (!existsSync(configPath)) return false;
     const content = readFileSync(configPath, "utf8");
-    return /^\s*disable_update_check\s*=\s*true\s*$/m.test(content);
+    return /^\s*disable_update_check\s*=\s*"?true"?\s*$/m.test(content);
   } catch {
     return false;
   }

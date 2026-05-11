@@ -21,18 +21,27 @@ jobs:
             exit 1
           fi
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Update Cargo.toml workspace version
-        run: sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
+        run: |
+          sed -i '/^\[workspace\.package\]/,/^\[/ s/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
+
+      - name: Update Cargo.lock
+        run: cargo update -w
 
       - name: Update package.json version
         run: |
           jq --arg v "${{ inputs.version }}" '.version = $v' package.json > package.json.tmp
           mv package.json.tmp package.json
 
-      - name: Commit and push
+      - name: Commit, tag, and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml package.json
+          git add Cargo.toml Cargo.lock package.json
           git commit -m "chore: bump version to ${{ inputs.version }}"
+          git tag "v${{ inputs.version }}"
           git push
+          git push origin "v${{ inputs.version }}"
