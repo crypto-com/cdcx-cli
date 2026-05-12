@@ -38,3 +38,7 @@ docs/superpowers/
 docs/feedbacks/
 
 .playwright-mcp
+
+
+# npmrc
+.npmrc

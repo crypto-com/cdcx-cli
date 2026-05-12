@@ -34,6 +34,7 @@
     "cdcx-cli": "./npm/bin.mjs"
   },
   "scripts": {
+    "bump": "./scripts/version-bump.sh",
     "postinstall": "node ./npm/post-install.mjs"
   }
 }
