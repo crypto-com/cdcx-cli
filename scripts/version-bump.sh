@@ -33,8 +33,18 @@ cargo update -w
 jq --arg v "$VERSION" '.version = $v' package.json > package.json.tmp
 mv package.json.tmp package.json
 
+# Update plugin.json versions
+for f in plugins/cdcx-cli/.claude-plugin/plugin.json \
+         plugins/cdcx-cli/.codex-plugin/plugin.json \
+         plugins/cdcx-cli/.cursor-plugin/plugin.json; do
+  if [ -f "$f" ]; then
+    jq --arg v "$VERSION" '.version = $v' "$f" > "$f.tmp"
+    mv "$f.tmp" "$f"
+  fi
+done
+
 # Commit, tag, and push
-git add Cargo.toml Cargo.lock package.json
+git add Cargo.toml Cargo.lock package.json plugins/
 git commit -m "chore(release): bump version to $VERSION"
 git push
 
