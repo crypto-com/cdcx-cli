@@ -653,11 +653,22 @@ pub async fn run_update(check_only: bool) -> Result<(), CdcxError> {
 }
 
 pub async fn run_mcp(
-    services: String,
-    allow_dangerous: bool,
+    services_override: Option<String>,
+    allow_dangerous_flag: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use cdcx_core::auth::Credentials;
+    use cdcx_core::config::McpConfig;
     use rmcp::ServiceExt;
+
+    // Load user's MCP config file (if it exists)
+    let mcp_config = McpConfig::load_default()?.unwrap_or_default();
+
+    // Resolve: CLI flag > config file > default
+    let services = match services_override {
+        Some(s) => s,
+        None => mcp_config.services_string(),
+    };
+    let allow_dangerous = allow_dangerous_flag || mcp_config.allow_dangerous;
 
     let service_groups: Vec<String> = services.split(',').map(|s| s.trim().to_string()).collect();
 

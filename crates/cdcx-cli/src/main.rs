@@ -211,11 +211,31 @@ async fn main() {
             }
         }
         Some(("mcp", sub)) => {
-            let services = sub.get_one::<String>("services").unwrap().clone();
-            let allow_dangerous = sub.get_flag("allow-dangerous");
-            if let Err(e) = dispatch::run_mcp(services, allow_dangerous).await {
-                eprintln!("MCP server error: {}", e);
-                std::process::exit(1);
+            if let Some(config_sub) = sub.subcommand_matches("config") {
+                let result = if config_sub.get_flag("reset") {
+                    mcp::config::reset_config()
+                } else if let Some(service) = config_sub.get_one::<String>("enable") {
+                    mcp::config::enable_service(service)
+                } else if let Some(service) = config_sub.get_one::<String>("disable") {
+                    mcp::config::disable_service(service)
+                } else if config_sub.get_flag("allow-dangerous") {
+                    mcp::config::set_allow_dangerous(true)
+                } else if config_sub.get_flag("no-dangerous") {
+                    mcp::config::set_allow_dangerous(false)
+                } else {
+                    mcp::config::show_config()
+                };
+                if let Err(e) = result {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            } else {
+                let services = sub.get_one::<String>("services").cloned();
+                let allow_dangerous = sub.get_flag("allow-dangerous");
+                if let Err(e) = dispatch::run_mcp(services, allow_dangerous).await {
+                    eprintln!("MCP server error: {}", e);
+                    std::process::exit(1);
+                }
             }
         }
         Some((group, sub)) => {

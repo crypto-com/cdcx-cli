@@ -148,18 +148,54 @@ pub fn build_static_cli() -> clap::Command {
         app.subcommand(clap::Command::new("setup").about("Configure API credentials and profiles"));
     app = app.subcommand(
         clap::Command::new("mcp")
-            .about("Start MCP server (stdio transport)")
+            .about("MCP server and configuration")
+            .args_conflicts_with_subcommands(true)
             .arg(
                 clap::Arg::new("services")
                     .long("services")
-                    .default_value("market")
-                    .help("Comma-separated service groups to expose"),
+                    .help("Comma-separated service groups to expose (overrides mcp.toml)"),
             )
             .arg(
                 clap::Arg::new("allow-dangerous")
                     .long("allow-dangerous")
                     .action(clap::ArgAction::SetTrue)
-                    .help("Allow dangerous operations"),
+                    .help("Allow dangerous operations (overrides mcp.toml)"),
+            )
+            .subcommand(
+                clap::Command::new("config")
+                    .about("Manage MCP service configuration (~/.config/cdcx/mcp.toml)")
+                    .arg(
+                        clap::Arg::new("enable")
+                            .long("enable")
+                            .value_name("SERVICE")
+                            .help("Enable a service group"),
+                    )
+                    .arg(
+                        clap::Arg::new("disable")
+                            .long("disable")
+                            .value_name("SERVICE")
+                            .help("Disable a service group"),
+                    )
+                    .arg(
+                        clap::Arg::new("allow-dangerous")
+                            .long("allow-dangerous")
+                            .action(clap::ArgAction::SetTrue)
+                            .conflicts_with("no-dangerous")
+                            .help("Enable dangerous operations in config"),
+                    )
+                    .arg(
+                        clap::Arg::new("no-dangerous")
+                            .long("no-dangerous")
+                            .action(clap::ArgAction::SetTrue)
+                            .conflicts_with("allow-dangerous")
+                            .help("Disable dangerous operations in config"),
+                    )
+                    .arg(
+                        clap::Arg::new("reset")
+                            .long("reset")
+                            .action(clap::ArgAction::SetTrue)
+                            .help("Reset configuration to defaults"),
+                    ),
             ),
     );
 

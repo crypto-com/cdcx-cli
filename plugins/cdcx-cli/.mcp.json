@@ -2,7 +2,7 @@
   "mcpServers": {
     "cdcx": {
       "command": "npx",
-      "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp", "--services", "market"]
+      "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp"]
     }
   }
 }
