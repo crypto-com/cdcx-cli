@@ -557,8 +557,8 @@ fn test_mcp_config_show_default() {
         .env("HOME", dir.path())
         .assert()
         .success()
-        .stderr(str::contains("market"))
-        .stderr(str::contains("allow_dangerous: false"));
+        .stdout(str::contains("market"))
+        .stdout(str::contains("allow_dangerous: false"));
 }
 
 #[test]
@@ -572,7 +572,7 @@ fn test_mcp_config_enable_disable() {
         .env("HOME", dir.path())
         .assert()
         .success()
-        .stderr(str::contains("Enabled service: trade"));
+        .stderr(str::contains("Active services:"));
 
     let content = fs::read_to_string(dir.path().join(".config/cdcx/mcp.toml")).unwrap();
     assert!(content.contains("trade"));
@@ -583,7 +583,7 @@ fn test_mcp_config_enable_disable() {
         .env("HOME", dir.path())
         .assert()
         .success()
-        .stderr(str::contains("Disabled service: trade"));
+        .stderr(str::contains("Active services:"));
 
     let content = fs::read_to_string(dir.path().join(".config/cdcx/mcp.toml")).unwrap();
     assert!(!content.contains("trade"));

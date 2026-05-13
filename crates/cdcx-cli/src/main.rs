@@ -232,7 +232,8 @@ async fn main() {
             } else {
                 let services = sub.get_one::<String>("services").cloned();
                 let allow_dangerous = sub.get_flag("allow-dangerous");
-                if let Err(e) = dispatch::run_mcp(services, allow_dangerous).await {
+                let no_dangerous = sub.get_flag("no-dangerous");
+                if let Err(e) = dispatch::run_mcp(services, allow_dangerous, no_dangerous).await {
                     eprintln!("MCP server error: {}", e);
                     std::process::exit(1);
                 }

@@ -655,6 +655,7 @@ pub async fn run_update(check_only: bool) -> Result<(), CdcxError> {
 pub async fn run_mcp(
     services_override: Option<String>,
     allow_dangerous_flag: bool,
+    no_dangerous_flag: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use cdcx_core::auth::Credentials;
     use cdcx_core::config::McpConfig;
@@ -668,7 +669,13 @@ pub async fn run_mcp(
         Some(s) => s,
         None => mcp_config.services_string(),
     };
-    let allow_dangerous = allow_dangerous_flag || mcp_config.allow_dangerous;
+    let allow_dangerous = if no_dangerous_flag {
+        false
+    } else if allow_dangerous_flag {
+        true
+    } else {
+        mcp_config.allow_dangerous
+    };
 
     let service_groups: Vec<String> = services.split(',').map(|s| s.trim().to_string()).collect();
 

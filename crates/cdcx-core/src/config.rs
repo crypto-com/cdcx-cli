@@ -185,6 +185,23 @@ pub fn set_dir_owner_only(path: &std::path::Path) -> Result<(), std::io::Error> 
     Ok(())
 }
 
+pub const MCP_SERVICE_GROUPS: &[(&str, &str)] = &[
+    ("market", "Tickers, orderbook, candles"),
+    ("account", "Balances, positions, history"),
+    ("trade", "Place, amend, cancel orders"),
+    ("advanced", "OCO, OTO, OTOCO orders"),
+    ("margin", "Margin transfers, leverage"),
+    ("staking", "Stake/unstake operations"),
+    ("funding", "Withdrawals (dangerous)"),
+    ("fiat", "Fiat operations (dangerous)"),
+    ("otc", "OTC desk operations"),
+    ("stream", "Real-time data streams"),
+];
+
+pub fn valid_mcp_service_names() -> Vec<&'static str> {
+    MCP_SERVICE_GROUPS.iter().map(|(name, _)| *name).collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpConfig {
     #[serde(default = "McpConfig::default_services")]
@@ -208,6 +225,11 @@ impl McpConfig {
     }
 
     pub fn default_path() -> Option<std::path::PathBuf> {
+        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            if !xdg.is_empty() {
+                return Some(std::path::PathBuf::from(xdg).join("cdcx").join("mcp.toml"));
+            }
+        }
         dirs::home_dir().map(|h| h.join(".config").join("cdcx").join("mcp.toml"))
     }
 

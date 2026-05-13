@@ -241,6 +241,7 @@ cdcx mcp config --reset                     # Reset to defaults (market only)
 | `staking` | staking | No | mutate | Staking operations |
 | `funding` | wallet | No | dangerous | Withdrawals and fund transfers |
 | `fiat` | fiat | No | dangerous | Fiat deposits/withdrawals |
+| `otc` | otc | No | mutate | OTC desk operations |
 | `stream` | stream | No | mixed | WebSocket subscriptions |
 
 ### Example Configurations

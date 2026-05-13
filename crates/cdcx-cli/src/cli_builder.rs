@@ -159,7 +159,15 @@ pub fn build_static_cli() -> clap::Command {
                 clap::Arg::new("allow-dangerous")
                     .long("allow-dangerous")
                     .action(clap::ArgAction::SetTrue)
+                    .conflicts_with("no-dangerous")
                     .help("Allow dangerous operations (overrides mcp.toml)"),
+            )
+            .arg(
+                clap::Arg::new("no-dangerous")
+                    .long("no-dangerous")
+                    .action(clap::ArgAction::SetTrue)
+                    .conflicts_with("allow-dangerous")
+                    .help("Disallow dangerous operations for this session (overrides mcp.toml)"),
             )
             .subcommand(
                 clap::Command::new("config")
@@ -167,14 +175,14 @@ pub fn build_static_cli() -> clap::Command {
                     .arg(
                         clap::Arg::new("enable")
                             .long("enable")
-                            .value_name("SERVICE")
-                            .help("Enable a service group"),
+                            .value_name("SERVICES")
+                            .help("Enable service group(s), comma-separated"),
                     )
                     .arg(
                         clap::Arg::new("disable")
                             .long("disable")
-                            .value_name("SERVICE")
-                            .help("Disable a service group"),
+                            .value_name("SERVICES")
+                            .help("Disable service group(s), comma-separated"),
                     )
                     .arg(
                         clap::Arg::new("allow-dangerous")

@@ -20,21 +20,17 @@ const TICKER_SPEEDS: &[(u64, &str, &str)] = &[
     (1, "Fast", "fast"),
 ];
 
-const MCP_SERVICES: &[(&str, &str)] = &[
-    ("market", "Tickers, orderbook, candles"),
-    ("account", "Balances, positions, history"),
-    ("trade", "Place, amend, cancel orders"),
-    ("advanced", "OCO, OTO, OTOCO orders"),
-    ("margin", "Margin transfers, leverage"),
-    ("staking", "Stake/unstake operations"),
-    ("funding", "Withdrawals (dangerous)"),
-    ("fiat", "Fiat operations (dangerous)"),
-];
+use cdcx_core::config::MCP_SERVICE_GROUPS;
 
-/// Total number of rows: 3 TUI settings + MCP_SERVICES checkboxes + 1 allow_dangerous toggle
 const TUI_ROW_COUNT: usize = 3;
-const MCP_ROW_COUNT: usize = 9; // 8 services + 1 allow_dangerous
-const TOTAL_ROWS: usize = TUI_ROW_COUNT + MCP_ROW_COUNT;
+
+fn mcp_row_count() -> usize {
+    MCP_SERVICE_GROUPS.len() + 1 // services + allow_dangerous toggle
+}
+
+fn total_rows() -> usize {
+    TUI_ROW_COUNT + mcp_row_count()
+}
 
 pub enum SettingsAction {
     /// Keep the panel open, no external effect.
@@ -64,8 +60,9 @@ pub struct SettingsPanel {
     original_ticker_speed_divisor: u64,
     original_tick_rate_ms: u64,
     saved: bool,
-    mcp_enabled: [bool; 8], // one per MCP_SERVICES entry
+    mcp_enabled: Vec<bool>,
     mcp_dangerous: bool,
+    extra_services: Vec<String>,
 }
 
 impl SettingsPanel {
@@ -99,11 +96,20 @@ impl SettingsPanel {
             .ok()
             .flatten()
             .unwrap_or_default();
-        let mut mcp_enabled = [false; 8];
-        for (i, (name, _)) in MCP_SERVICES.iter().enumerate() {
+        let mut mcp_enabled = vec![false; MCP_SERVICE_GROUPS.len()];
+        for (i, (name, _)) in MCP_SERVICE_GROUPS.iter().enumerate() {
             mcp_enabled[i] = mcp_config.services.iter().any(|s| s == name);
         }
         let mcp_dangerous = mcp_config.allow_dangerous;
+
+        // Track services in the config that aren't in our known list (preserve on save)
+        let known_names: Vec<&str> = MCP_SERVICE_GROUPS.iter().map(|(n, _)| *n).collect();
+        let extra_services: Vec<String> = mcp_config
+            .services
+            .iter()
+            .filter(|s| !known_names.contains(&s.as_str()))
+            .cloned()
+            .collect();
 
         Self {
             selected: 0,
@@ -117,6 +123,7 @@ impl SettingsPanel {
             saved: false,
             mcp_enabled,
             mcp_dangerous,
+            extra_services,
         }
     }
 
@@ -178,7 +185,7 @@ impl SettingsPanel {
                 SettingsAction::None
             }
             KeyCode::Down => {
-                if self.selected < TOTAL_ROWS - 1 {
+                if self.selected < total_rows() - 1 {
                     self.selected += 1;
                 }
                 SettingsAction::None
@@ -207,7 +214,7 @@ impl SettingsPanel {
 
     fn toggle_mcp(&mut self) {
         let idx = self.mcp_row_index();
-        if idx < MCP_SERVICES.len() {
+        if idx < MCP_SERVICE_GROUPS.len() {
             if idx == 0 {
                 // "market" cannot be disabled
                 self.mcp_enabled[0] = true;
@@ -260,12 +267,14 @@ impl SettingsPanel {
     }
 
     fn save_mcp_config(&self) -> Result<(), String> {
-        let services: Vec<String> = MCP_SERVICES
+        let mut services: Vec<String> = MCP_SERVICE_GROUPS
             .iter()
             .enumerate()
             .filter(|(i, _)| self.mcp_enabled[*i])
             .map(|(_, (name, _))| name.to_string())
             .collect();
+        // Preserve any services from the config that aren't in our known list
+        services.extend(self.extra_services.iter().cloned());
         let config = cdcx_core::config::McpConfig {
             services,
             allow_dangerous: self.mcp_dangerous,
@@ -275,7 +284,7 @@ impl SettingsPanel {
 
     pub fn draw(&self, frame: &mut Frame, area: Rect, colors: &ThemeColors) {
         let width = 56u16;
-        let height = 26u16;
+        let height = (total_rows() + 12) as u16; // rows + divider + preview + borders + footer
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
         let modal = Rect::new(x, y, width.min(area.width), height.min(area.height));
@@ -289,8 +298,9 @@ impl SettingsPanel {
         let inner = block.inner(modal);
         frame.render_widget(block, modal);
 
+        let settings_height = (TUI_ROW_COUNT + 1 + mcp_row_count() + 1) as u16;
         let [settings_area, preview_area, _, footer_area] = Layout::vertical([
-            Constraint::Length(14), // 3 TUI + 1 divider + 8 services + 1 dangerous + 1 pad
+            Constraint::Length(settings_height),
             Constraint::Fill(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -350,8 +360,8 @@ impl SettingsPanel {
             Style::default().fg(colors.muted),
         )));
 
-        // --- MCP service checkboxes (rows TUI_ROW_COUNT .. TUI_ROW_COUNT+8) ---
-        for (i, (name, desc)) in MCP_SERVICES.iter().enumerate() {
+        // --- MCP service checkboxes ---
+        for (i, (name, desc)) in MCP_SERVICE_GROUPS.iter().enumerate() {
             let row_idx = TUI_ROW_COUNT + i;
             let is_selected = row_idx == self.selected;
             let checked = self.mcp_enabled[i];
@@ -388,7 +398,7 @@ impl SettingsPanel {
 
         // --- allow_dangerous toggle (last MCP row) ---
         {
-            let row_idx = TUI_ROW_COUNT + MCP_SERVICES.len();
+            let row_idx = TUI_ROW_COUNT + MCP_SERVICE_GROUPS.len();
             let is_selected = row_idx == self.selected;
             let checked = self.mcp_dangerous;
 
@@ -672,7 +682,7 @@ mod tests {
         let mut panel = SettingsPanel::new("terminal-pro", 250, 2);
         assert_eq!(panel.selected, 0);
         // Navigate down through all rows
-        for expected in 1..TOTAL_ROWS {
+        for expected in 1..total_rows() {
             panel.on_key(KeyEvent::new(
                 KeyCode::Down,
                 crossterm::event::KeyModifiers::NONE,
@@ -684,13 +694,13 @@ mod tests {
             KeyCode::Down,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(panel.selected, TOTAL_ROWS - 1);
+        assert_eq!(panel.selected, total_rows() - 1);
         // Navigate back up
         panel.on_key(KeyEvent::new(
             KeyCode::Up,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(panel.selected, TOTAL_ROWS - 2);
+        assert_eq!(panel.selected, total_rows() - 2);
     }
 
     // ---- Watchlist persistence (Issue #23) ----

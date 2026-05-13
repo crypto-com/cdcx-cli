@@ -1,17 +1,13 @@
-use cdcx_core::config::McpConfig;
+use cdcx_core::config::{valid_mcp_service_names, McpConfig};
 use cdcx_core::error::CdcxError;
 
-const VALID_SERVICES: &[&str] = &[
-    "market", "account", "trade", "advanced", "margin", "staking", "funding", "fiat", "otc",
-    "stream",
-];
-
 fn validate_service(name: &str) -> Result<(), CdcxError> {
-    if name != "all" && !VALID_SERVICES.contains(&name) {
+    let valid = valid_mcp_service_names();
+    if name != "all" && !valid.contains(&name) {
         return Err(CdcxError::Config(format!(
             "Unknown service group: '{}'. Valid groups: {}, all",
             name,
-            VALID_SERVICES.join(", ")
+            valid.join(", ")
         )));
     }
     Ok(())
@@ -26,45 +22,56 @@ pub fn show_config() -> Result<(), CdcxError> {
         .unwrap_or_else(|| "<unknown>".to_string());
     let file_exists = path.map(|p| p.exists()).unwrap_or(false);
 
-    eprintln!("MCP configuration:");
-    eprintln!(
+    println!("MCP configuration:");
+    println!(
         "  file:            {}{}",
         path_display,
         if file_exists { "" } else { " (using defaults)" }
     );
-    eprintln!("  services:        {}", config.services.join(", "));
-    eprintln!("  allow_dangerous: {}", config.allow_dangerous);
+    println!("  services:        {}", config.services.join(", "));
+    println!("  allow_dangerous: {}", config.allow_dangerous);
     Ok(())
 }
 
-pub fn enable_service(service: &str) -> Result<(), CdcxError> {
-    validate_service(service)?;
+pub fn enable_service(input: &str) -> Result<(), CdcxError> {
+    let names: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+    for name in &names {
+        validate_service(name)?;
+    }
     let mut config = McpConfig::load_default()?.unwrap_or_default();
-    if service == "all" {
-        config.services = VALID_SERVICES.iter().map(|s| s.to_string()).collect();
-    } else if !config.services.iter().any(|s| s == service) {
-        config.services.push(service.to_string());
+    let valid = valid_mcp_service_names();
+    for name in &names {
+        if *name == "all" {
+            config.services = valid.iter().map(|s| s.to_string()).collect();
+            break;
+        } else if !config.services.iter().any(|s| s == name) {
+            config.services.push(name.to_string());
+        }
     }
     config.save()?;
-    eprintln!("Enabled service: {}", service);
     eprintln!("Active services: {}", config.services.join(", "));
     Ok(())
 }
 
-pub fn disable_service(service: &str) -> Result<(), CdcxError> {
-    validate_service(service)?;
+pub fn disable_service(input: &str) -> Result<(), CdcxError> {
+    let names: Vec<&str> = input.split(',').map(|s| s.trim()).collect();
+    for name in &names {
+        validate_service(name)?;
+    }
     let mut config = McpConfig::load_default()?.unwrap_or_default();
-    if service == "all" {
-        config.services = vec!["market".to_string()];
-    } else {
-        config.services.retain(|s| s != service);
-        if config.services.is_empty() {
-            config.services.push("market".to_string());
-            eprintln!("Cannot disable all services; keeping 'market' as minimum.");
+    for name in &names {
+        if *name == "all" {
+            config.services = vec!["market".to_string()];
+            break;
+        } else {
+            config.services.retain(|s| s != name);
         }
     }
+    if config.services.is_empty() {
+        config.services.push("market".to_string());
+        eprintln!("Cannot disable all services; keeping 'market' as minimum.");
+    }
     config.save()?;
-    eprintln!("Disabled service: {}", service);
     eprintln!("Active services: {}", config.services.join(", "));
     Ok(())
 }
