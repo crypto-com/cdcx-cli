@@ -225,11 +225,6 @@ impl McpConfig {
     }
 
     pub fn default_path() -> Option<std::path::PathBuf> {
-        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-            if !xdg.is_empty() {
-                return Some(std::path::PathBuf::from(xdg).join("cdcx").join("mcp.toml"));
-            }
-        }
         dirs::home_dir().map(|h| h.join(".config").join("cdcx").join("mcp.toml"))
     }
 
