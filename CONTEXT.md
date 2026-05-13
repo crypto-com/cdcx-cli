@@ -106,14 +106,15 @@ When using MCP server or `--yes` flag, provide `acknowledged=true` in parameters
 
 ## MCP Server
 
-Start the MCP server with specified service groups:
+Configure and start the MCP server:
 
 ```bash
-cdcx mcp --services market,trade,account
-cdcx mcp --services market,trade --allow-dangerous
+cdcx mcp config --enable trade,account
+cdcx mcp config --allow-dangerous
+cdcx mcp
 ```
 
-Default services: `market` (public endpoints only)
+Default services: `market` (public endpoints only). Config stored in `~/.config/cdcx/mcp.toml`.
 
 See `agents/AGENTS.md` for full MCP integration guide.
 

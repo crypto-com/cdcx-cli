@@ -45,13 +45,13 @@ There is **no `--api-key` or `--api-secret` CLI flag by design.** Command-line f
 | `read` | `market ticker`, `market book` | None required |
 | `sensitive_read` | `account summary`, `trade open-orders` | None required (authenticated) |
 | `mutate` | `trade order`, `trade cancel` | MCP requires `acknowledged: true` parameter |
-| `dangerous` | `trade cancel-all`, `wallet withdraw` | Requires `cdcx mcp --allow-dangerous` flag at server startup |
+| `dangerous` | `trade cancel-all`, `wallet withdraw` | Requires `cdcx mcp config --allow-dangerous` |
 
 When running the MCP server for an AI agent:
 
-- Start with `--services market,account` to expose read-only capabilities first.
-- Add `trade` only when the agent genuinely needs to place orders.
-- Never pass `--allow-dangerous` unless you explicitly want the agent to be able to withdraw funds or bulk-cancel orders.
+- Start with default config (`market` only) to expose read-only capabilities first.
+- Enable `trade` only when the agent genuinely needs to place orders (`cdcx mcp config --enable trade`).
+- Never enable `--allow-dangerous` unless you explicitly want the agent to be able to withdraw funds or bulk-cancel orders.
 
 ## Paper trading
 

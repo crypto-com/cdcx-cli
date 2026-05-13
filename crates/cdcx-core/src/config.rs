@@ -185,6 +185,84 @@ pub fn set_dir_owner_only(path: &std::path::Path) -> Result<(), std::io::Error> 
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpConfig {
+    #[serde(default = "McpConfig::default_services")]
+    pub services: Vec<String>,
+    #[serde(default)]
+    pub allow_dangerous: bool,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            services: Self::default_services(),
+            allow_dangerous: false,
+        }
+    }
+}
+
+impl McpConfig {
+    fn default_services() -> Vec<String> {
+        vec!["market".to_string()]
+    }
+
+    pub fn default_path() -> Option<std::path::PathBuf> {
+        dirs::home_dir().map(|h| h.join(".config").join("cdcx").join("mcp.toml"))
+    }
+
+    pub fn load_default() -> Result<Option<Self>, CdcxError> {
+        let path = match Self::default_path() {
+            Some(p) => p,
+            None => return Ok(None),
+        };
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(CdcxError::Config(format!(
+                    "Failed to read mcp config: {}",
+                    e
+                )))
+            }
+        };
+        let config: Self = toml::from_str(&content)
+            .map_err(|e| CdcxError::Config(format!("Failed to parse mcp.toml: {}", e)))?;
+        Ok(Some(config))
+    }
+
+    pub fn save(&self) -> Result<(), CdcxError> {
+        let path = Self::default_path()
+            .ok_or_else(|| CdcxError::Config("Cannot determine home directory".into()))?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| CdcxError::Config(format!("Failed to create config dir: {}", e)))?;
+        }
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| CdcxError::Config(format!("Failed to serialize mcp config: {}", e)))?;
+        std::fs::write(&path, content)
+            .map_err(|e| CdcxError::Config(format!("Failed to write mcp.toml: {}", e)))?;
+        Ok(())
+    }
+
+    pub fn delete() -> Result<(), CdcxError> {
+        let path = Self::default_path()
+            .ok_or_else(|| CdcxError::Config("Cannot determine home directory".into()))?;
+        match std::fs::remove_file(&path) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(CdcxError::Config(format!(
+                "Failed to remove mcp.toml: {}",
+                e
+            ))),
+        }
+    }
+
+    pub fn services_string(&self) -> String {
+        self.services.join(",")
+    }
+}
+
 impl Config {
     /// Return the default config path (~/.config/cdcx/config.toml).
     pub fn default_path() -> Option<std::path::PathBuf> {
@@ -310,6 +388,42 @@ environment = "production"
         let config = Config::parse(toml).unwrap();
         assert!(config.disable_update_check);
         assert!(config.default.is_none());
+    }
+
+    mod mcp_config_tests {
+        use super::*;
+
+        #[test]
+        fn test_default_mcp_config() {
+            let config = McpConfig::default();
+            assert_eq!(config.services, vec!["market"]);
+            assert!(!config.allow_dangerous);
+        }
+
+        #[test]
+        fn test_parse_mcp_config() {
+            let toml_str =
+                "services = [\"market\", \"trade\", \"account\"]\nallow_dangerous = true\n";
+            let config: McpConfig = toml::from_str(toml_str).unwrap();
+            assert_eq!(config.services, vec!["market", "trade", "account"]);
+            assert!(config.allow_dangerous);
+        }
+
+        #[test]
+        fn test_parse_empty_mcp_config() {
+            let config: McpConfig = toml::from_str("").unwrap();
+            assert_eq!(config.services, vec!["market"]);
+            assert!(!config.allow_dangerous);
+        }
+
+        #[test]
+        fn test_services_string() {
+            let config = McpConfig {
+                services: vec!["market".into(), "trade".into()],
+                allow_dangerous: false,
+            };
+            assert_eq!(config.services_string(), "market,trade");
+        }
     }
 
     #[cfg(unix)]

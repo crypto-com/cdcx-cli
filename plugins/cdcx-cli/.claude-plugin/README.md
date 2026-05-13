@@ -12,25 +12,33 @@ cdcx market ticker BTC_USDT
 
 ## Enable Trading
 
-To unlock trading and account tools, update the MCP server configuration:
+To unlock trading and account tools, use `cdcx mcp config`:
 
-1. Edit the `mcpServers.cdcx.args` in your MCP settings (project `.claude/settings.json` or user `~/.claude/settings.json`)
-2. Change the args to include additional services:
-
-```json
-["mcp", "--services", "market,trade,account"]
+```bash
+cdcx mcp config --enable trade
+cdcx mcp config --enable account
 ```
 
-3. Add your credentials in the `env` section:
+Then set up your API credentials:
 
-```json
-{
-  "CDC_API_KEY": "your-key",
-  "CDC_API_SECRET": "your-secret"
-}
+```bash
+cdcx setup
 ```
 
-Or run `cdcx setup` to configure credentials interactively.
+Or set `CDC_API_KEY` and `CDC_API_SECRET` environment variables.
+
+Your configuration is saved to `~/.config/cdcx/mcp.toml` and persists across plugin updates.
+
+## Managing Services
+
+```bash
+cdcx mcp config                      # Show current configuration
+cdcx mcp config --enable trade       # Enable a service group
+cdcx mcp config --disable funding    # Disable a service group
+cdcx mcp config --allow-dangerous    # Enable dangerous operations
+cdcx mcp config --no-dangerous       # Disable dangerous operations
+cdcx mcp config --reset              # Reset to defaults
+```
 
 ## Available Services
 
@@ -44,23 +52,6 @@ Or run `cdcx setup` to configure credentials interactively.
 | `staking` | Yes | Stake/unstake operations |
 | `funding` | Yes | Withdrawals (requires `--allow-dangerous`) |
 | `fiat` | Yes | Fiat operations (requires `--allow-dangerous`) |
-
-## Example Configurations
-
-**Read-only (default):**
-```json
-["mcp", "--services", "market"]
-```
-
-**Trading agent:**
-```json
-["mcp", "--services", "market,trade,account"]
-```
-
-**Full access:**
-```json
-["mcp", "--services", "market,trade,account,advanced,margin,staking,funding,fiat", "--allow-dangerous"]
-```
 
 ## Links
 

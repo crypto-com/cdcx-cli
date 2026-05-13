@@ -1,7 +1,7 @@
 {
   "name": "cdcx-cli",
   "version": "1.2.2",
-  "description": "Agent-first CLI for the Crypto.com Exchange API. Market data by default; live trading opt-in via API keys. Available --services: market (default), trade, account, advanced, margin, staking, funding, fiat. Update args in MCP settings to expand capabilities.",
+  "description": "Agent-first CLI for the Crypto.com Exchange API. Market data by default; live trading opt-in via API keys. Run 'cdcx mcp config --enable trade' to expand capabilities.",
   "author": {
     "name": "Crypto.com",
     "url": "https://github.com/crypto-com/cdcx-cli"
@@ -36,7 +36,7 @@
   "mcpServers": {
     "cdcx": {
       "command": "npx",
-      "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp", "--services", "market"],
+      "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp"],
       "env": {
         "CDC_API_KEY": "${user_config.api_key}",
         "CDC_API_SECRET": "${user_config.api_secret}"

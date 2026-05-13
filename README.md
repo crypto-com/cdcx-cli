@@ -27,18 +27,7 @@ cargo install --git https://github.com/crypto-com/cdcx-cli.git --bin cdcx
 Every response is structured JSON. 86 MCP tools with typed parameters, enum validation, safety enforcement, and schema discovery — all generated from the OpenAPI spec at runtime. Your LLM can trade, analyze markets, and manage positions without custom tooling.
 
 ```bash
-cdcx mcp --services market,account,trade
-```
-
-```json
-{
-  "mcpServers": {
-    "cdcx": {
-      "command": "npx",
-      "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp", "--services", "market,account,trade"]
-    }
-  }
-}
+cdcx mcp config --enable trade,account
 ```
 
 Compatible with Claude Code, Cursor, Claude Desktop, Codex, Github Copilot, Gemini CLI, and other MCP clients. Includes 13 agent skill files in `skills/` for guided workflows.
@@ -108,11 +97,16 @@ cdcx account summary
 Expose the Exchange API as MCP tools for AI agents:
 
 ```bash
-cdcx mcp --services market,account,trade
-cdcx mcp --services all --allow-dangerous
+cdcx mcp                                    # Start server (reads config)
+cdcx mcp config                             # Show current config
+cdcx mcp config --enable trade,account      # Enable service groups
+cdcx mcp config --allow-dangerous           # Allow withdrawals, cancel-all
+cdcx mcp config --reset                     # Reset to defaults (market only)
 ```
 
-Service groups (MCP): `market`, `account`, `trade`, `advanced`, `margin`, `staking`, `funding`, `fiat`, `otc`, `stream`, `all`
+Service groups: `market`, `account`, `trade`, `advanced`, `margin`, `staking`, `funding`, `fiat`, `otc`, `stream`
+
+Configuration is stored in `~/.config/cdcx/mcp.toml` and persists across updates.
 
 > **Note:** `account` also exposes historical endpoints (orders, trades, transactions). `funding` covers wallet deposit/withdrawal endpoints. Paper trading is a CLI-only feature and has no MCP tools.
 
@@ -124,26 +118,6 @@ Service groups (MCP): `market`, `account`, `trade`, `advanced`, `margin`, `staki
 | **sensitive_read** | No confirmation | `account summary`, `trade open-orders` |
 | **mutate** | Requires `acknowledged: true` | `trade order`, `trade cancel` |
 | **dangerous** | Requires `--allow-dangerous` | `trade cancel-all`, `wallet withdraw` |
-
-### Agent Skills
-
-13 skill files in `skills/` covering:
-
-| Skill | Purpose |
-|-------|---------|
-| `cdcx-market-intel` | Market analysis and price discovery |
-| `cdcx-portfolio-intel` | Portfolio analysis and risk assessment |
-| `cdcx-execution` | Order placement with safety checks |
-| `cdcx-advanced` | OCO, OTO, OTOCO contingency orders |
-| `cdcx-paper-strategy` | Paper trading strategy testing |
-| `cdcx-wallet-ops` | Deposits, withdrawals, network management |
-| `cdcx-auth-setup` | Credential configuration |
-| `cdcx-autonomy-levels` | Safety tier configuration |
-| `cdcx-check-balance` | Balance and credential verification |
-| `cdcx-place-limit-order` | Limit order workflow with preflight checks |
-| `cdcx-isolated-margin` | Isolated margin trading (equity/RWA perpetuals) |
-| `recipe-morning-brief` | Daily market briefing workflow |
-| `recipe-emergency-flatten` | Emergency position flattening |
 
 ### Plugin Installation
 
@@ -168,18 +142,32 @@ codex plugin marketplace add crypto-com/cdcx-cli
 {
   "cdcx": {
     "command": "npx",
-    "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp", "--services", "market"]
+    "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp"]
   }
 }
 ```
 
-To expand services beyond market data, update the `--services` flag:
+Then configure services with `cdcx mcp config --enable trade,account`.
 
-```
-market,trade,account          # Trading agent
-market,trade,account,advanced # With OCO/OTOCO
-all --allow-dangerous         # Full access (withdrawals enabled)
-```
+### Agent Skills
+
+13 skill files in `skills/` covering:
+
+| Skill | Purpose |
+|-------|---------|
+| `cdcx-market-intel` | Market analysis and price discovery |
+| `cdcx-portfolio-intel` | Portfolio analysis and risk assessment |
+| `cdcx-execution` | Order placement with safety checks |
+| `cdcx-advanced` | OCO, OTO, OTOCO contingency orders |
+| `cdcx-paper-strategy` | Paper trading strategy testing |
+| `cdcx-wallet-ops` | Deposits, withdrawals, network management |
+| `cdcx-auth-setup` | Credential configuration |
+| `cdcx-autonomy-levels` | Safety tier configuration |
+| `cdcx-check-balance` | Balance and credential verification |
+| `cdcx-place-limit-order` | Limit order workflow with preflight checks |
+| `cdcx-isolated-margin` | Isolated margin trading (equity/RWA perpetuals) |
+| `recipe-morning-brief` | Daily market briefing workflow |
+| `recipe-emergency-flatten` | Emergency position flattening |
 
 ---
 
@@ -307,6 +295,7 @@ cdcx tui --setup                       # Setup wizard
 | `p` | Toggle LIVE / PAPER mode |
 | `!` | Set price alert |
 | `y` | Copy to clipboard (CSV) |
+| `,` | Settings (theme, MCP services) |
 | `?` | Help overlay |
 | `q` | Quit |
 
@@ -321,6 +310,15 @@ Resolved in order: flags > `CDCX_API_KEY`/`CDCX_API_SECRET` env > `CDC_API_KEY`/
 ```bash
 cdcx setup                             # Interactive credential setup
 cdcx --profile uat account summary     # Use named profile
+```
+
+### MCP Config
+
+`~/.config/cdcx/mcp.toml` (managed via `cdcx mcp config` or TUI settings):
+
+```toml
+services = ["market", "trade", "account"]
+allow_dangerous = false
 ```
 
 ### TUI Config

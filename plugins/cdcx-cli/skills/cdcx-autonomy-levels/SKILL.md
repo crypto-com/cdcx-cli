@@ -24,13 +24,8 @@ Every cdcx MCP tool is classified into one of four tiers:
 
 Agent can observe the market but cannot touch the account.
 
-```
-cdcx mcp --services market
-```
-
-MCP config:
-```json
-{"command":"npx","args":["-y","@cryptocom/cdcx-cli@latest","mcp","--services","market"]}
+```bash
+cdcx mcp config --reset   # ensures only market is enabled
 ```
 
 Use for: market research agents, price alerts, chart commentary.
@@ -39,8 +34,8 @@ Use for: market research agents, price alerts, chart commentary.
 
 Agent can read live market data plus read authenticated account info; any actual trading is paper-only and handled CLI-side (not via MCP).
 
-```
-cdcx mcp --services market,account
+```bash
+cdcx mcp config --enable account
 ```
 
 Pair the MCP server with shell access to `cdcx paper` for simulated execution. Paper has no MCP tools; execution stays outside the agent's tool surface.
@@ -51,11 +46,11 @@ Use for: strategy research with real account context, backtest harnesses.
 
 Agent can place and cancel real orders, but every mutation requires explicit acknowledgement from the host application (human-in-the-loop).
 
-```
-cdcx mcp --services market,account,trade,advanced
+```bash
+cdcx mcp config --enable account,trade,advanced
 ```
 
-The agent calls `cdcx_trade_order`; the host MUST echo the intent to the human and only pass `acknowledged: true` once approved. Dangerous tools (`cancel-all`, `withdraw`) are refused at the server since `--allow-dangerous` is not set.
+The agent calls `cdcx_trade_order`; the host MUST echo the intent to the human and only pass `acknowledged: true` once approved. Dangerous tools (`cancel-all`, `withdraw`) are refused at the server since `allow_dangerous` is not set.
 
 Use for: semi-automated trading with human oversight, production with guardrails.
 
@@ -63,8 +58,9 @@ Use for: semi-automated trading with human oversight, production with guardrails
 
 Agent executes anything without per-call confirmation. Dangerous tier is available.
 
-```
-cdcx mcp --services market,account,trade,advanced,funding --allow-dangerous
+```bash
+cdcx mcp config --enable account,trade,advanced,funding
+cdcx mcp config --allow-dangerous
 ```
 
 Even at level 3, `mutate` tools still require `acknowledged: true` in the tool arguments — but an autonomous agent will pass it automatically without a human prompt. `--allow-dangerous` additionally unlocks cancel-all and withdrawals.
@@ -81,15 +77,15 @@ Use for: fully automated strategies with external risk controls (position limits
 
 ## Service Group Reference
 
-Valid MCP service groups: `market, account, trade, advanced, margin, staking, funding, fiat, otc, stream, all`.
+Valid MCP service groups: `market`, `account`, `trade`, `advanced`, `margin`, `staking`, `funding`, `fiat`, `otc`, `stream`.
 
 - `account` also exposes `history` (orders/trades/transactions)
 - `funding` maps to the `wallet` CLI group (deposit/withdraw/networks)
 - `paper` is **not** an MCP group — paper trading is CLI-only
-- `all` includes everything above
+- `cdcx mcp config --enable all` is a shortcut to enable everything
 
 ## Notes
 
 - Withdrawals (`funding withdraw`) should only be unlocked at Level 3 and only with `--allow-dangerous`; they are the highest-risk action available
 - You can run multiple cdcx MCP servers side by side with different autonomy levels (one agent at level 1, another at level 2)
-- `--allow-dangerous` only affects the dangerous tier. Mutate tools always need `acknowledged: true` regardless
+- `allow_dangerous` only affects the dangerous tier. Mutate tools always need `acknowledged: true` regardless

@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use predicates::str;
+use std::fs;
 
 /// Returns true if a cached OpenAPI spec exists.
 /// Integration tests that exercise dynamic API groups require this.
@@ -494,7 +495,6 @@ fn test_update_help_hides_global_flags() {
 #[test]
 #[cfg(unix)]
 fn test_update_disable_writes_config() {
-    use std::fs;
     let dir = tempfile::tempdir().unwrap();
 
     Command::cargo_bin("cdcx")
@@ -512,7 +512,6 @@ fn test_update_disable_writes_config() {
 #[test]
 #[cfg(unix)]
 fn test_update_enable_after_disable() {
-    use std::fs;
     let dir = tempfile::tempdir().unwrap();
     let config_dir = dir.path().join(".config/cdcx");
     fs::create_dir_all(&config_dir).unwrap();
@@ -532,4 +531,124 @@ fn test_update_enable_after_disable() {
 
     let content = fs::read_to_string(config_dir.join("config.toml")).unwrap();
     assert!(content.contains("disable_update_check = false"));
+}
+
+// --- MCP config tests ---
+
+#[test]
+fn test_mcp_config_help() {
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config", "--help"])
+        .assert()
+        .success()
+        .stdout(str::contains("--enable"))
+        .stdout(str::contains("--disable"))
+        .stdout(str::contains("--reset"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_mcp_config_show_default() {
+    let dir = tempfile::tempdir().unwrap();
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("market"))
+        .stderr(str::contains("allow_dangerous: false"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_mcp_config_enable_disable() {
+    let dir = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config", "--enable", "trade"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("Enabled service: trade"));
+
+    let content = fs::read_to_string(dir.path().join(".config/cdcx/mcp.toml")).unwrap();
+    assert!(content.contains("trade"));
+
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config", "--disable", "trade"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("Disabled service: trade"));
+
+    let content = fs::read_to_string(dir.path().join(".config/cdcx/mcp.toml")).unwrap();
+    assert!(!content.contains("trade"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_mcp_config_allow_dangerous() {
+    let dir = tempfile::tempdir().unwrap();
+
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config", "--allow-dangerous"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("enabled"));
+
+    let content = fs::read_to_string(dir.path().join(".config/cdcx/mcp.toml")).unwrap();
+    assert!(content.contains("allow_dangerous = true"));
+
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config", "--no-dangerous"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("disabled"));
+
+    let content = fs::read_to_string(dir.path().join(".config/cdcx/mcp.toml")).unwrap();
+    assert!(content.contains("allow_dangerous = false"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_mcp_config_reset() {
+    let dir = tempfile::tempdir().unwrap();
+    let config_dir = dir.path().join(".config/cdcx");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("mcp.toml"),
+        "services = [\"market\", \"trade\"]\nallow_dangerous = true\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config", "--reset"])
+        .env("HOME", dir.path())
+        .assert()
+        .success()
+        .stderr(str::contains("reset to defaults"));
+
+    assert!(!config_dir.join("mcp.toml").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn test_mcp_config_invalid_service() {
+    let dir = tempfile::tempdir().unwrap();
+    Command::cargo_bin("cdcx")
+        .unwrap()
+        .args(["mcp", "config", "--enable", "bogus"])
+        .env("HOME", dir.path())
+        .assert()
+        .failure()
+        .stderr(str::contains("Unknown service group"));
 }

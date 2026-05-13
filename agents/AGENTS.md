@@ -61,10 +61,11 @@ Expected response on auth failure:
 
 ### For Agents Using MCP
 
-When running the MCP server, provide credentials in the initial setup:
+Configure services and start the MCP server:
 
 ```bash
-cdcx mcp --services market,trade,account
+cdcx mcp config --enable trade,account
+cdcx mcp
 ```
 
 The server will attempt to resolve credentials from the environment or config file. If credentials are not available for private endpoints, the MCP server will reject requests with an auth error.
@@ -209,17 +210,23 @@ For `mutate` and `dangerous` operations:
    }
    ```
 
-3. **Dangerous operations on MCP:** Require `--allow-dangerous` flag on server startup
+3. **Dangerous operations on MCP:** Require `allow_dangerous` in config
    ```bash
-   cdcx mcp --services market,trade,wallet --allow-dangerous
+   cdcx mcp config --enable trade,funding --allow-dangerous
    ```
 
 ## MCP Server Setup
 
-### Starting the Server
+### Configuration
+
+Services are managed via `cdcx mcp config` and persisted to `~/.config/cdcx/mcp.toml`:
 
 ```bash
-cdcx mcp --services <GROUP1>,<GROUP2>... [--allow-dangerous]
+cdcx mcp config                             # Show current config
+cdcx mcp config --enable trade,account      # Enable service groups
+cdcx mcp config --disable staking           # Disable a service group
+cdcx mcp config --allow-dangerous           # Enable dangerous operations
+cdcx mcp config --reset                     # Reset to defaults (market only)
 ```
 
 ### Service Groups
@@ -240,17 +247,17 @@ cdcx mcp --services <GROUP1>,<GROUP2>... [--allow-dangerous]
 
 **Read-only (market data only):**
 ```bash
-cdcx mcp --services market
+cdcx mcp config --reset
 ```
 
 **Trading agent (no withdrawals):**
 ```bash
-cdcx mcp --services market,trade,account,history
+cdcx mcp config --enable trade,account
 ```
 
 **Full access (dangerous operations enabled):**
 ```bash
-cdcx mcp --services market,trade,account,advanced,margin,staking,wallet,fiat --allow-dangerous
+cdcx mcp config --enable all --allow-dangerous
 ```
 
 ### Tool Registration

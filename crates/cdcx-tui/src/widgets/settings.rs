@@ -20,28 +20,21 @@ const TICKER_SPEEDS: &[(u64, &str, &str)] = &[
     (1, "Fast", "fast"),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SettingsRow {
-    Theme,
-    TickerSpeed,
-    TickRate,
-}
+const MCP_SERVICES: &[(&str, &str)] = &[
+    ("market", "Tickers, orderbook, candles"),
+    ("account", "Balances, positions, history"),
+    ("trade", "Place, amend, cancel orders"),
+    ("advanced", "OCO, OTO, OTOCO orders"),
+    ("margin", "Margin transfers, leverage"),
+    ("staking", "Stake/unstake operations"),
+    ("funding", "Withdrawals (dangerous)"),
+    ("fiat", "Fiat operations (dangerous)"),
+];
 
-impl SettingsRow {
-    const ALL: &[SettingsRow] = &[
-        SettingsRow::Theme,
-        SettingsRow::TickerSpeed,
-        SettingsRow::TickRate,
-    ];
-
-    fn label(&self) -> &'static str {
-        match self {
-            SettingsRow::Theme => "Theme",
-            SettingsRow::TickerSpeed => "Ticker Tape",
-            SettingsRow::TickRate => "Tick Rate",
-        }
-    }
-}
+/// Total number of rows: 3 TUI settings + MCP_SERVICES checkboxes + 1 allow_dangerous toggle
+const TUI_ROW_COUNT: usize = 3;
+const MCP_ROW_COUNT: usize = 9; // 8 services + 1 allow_dangerous
+const TOTAL_ROWS: usize = TUI_ROW_COUNT + MCP_ROW_COUNT;
 
 pub enum SettingsAction {
     /// Keep the panel open, no external effect.
@@ -55,6 +48,7 @@ pub enum SettingsAction {
         theme: Theme,
         tick_rate_ms: u64,
         ticker_speed_divisor: u64,
+        mcp_error: Option<String>,
     },
     /// User closed without saving — caller should revert theme and speed.
     Close,
@@ -70,6 +64,8 @@ pub struct SettingsPanel {
     original_ticker_speed_divisor: u64,
     original_tick_rate_ms: u64,
     saved: bool,
+    mcp_enabled: [bool; 8], // one per MCP_SERVICES entry
+    mcp_dangerous: bool,
 }
 
 impl SettingsPanel {
@@ -96,7 +92,18 @@ impl SettingsPanel {
         let ticker_speed_idx = TICKER_SPEEDS
             .iter()
             .position(|(div, _, _)| *div == current_ticker_speed_divisor)
-            .unwrap_or(1); // default to medium
+            .unwrap_or(1);
+
+        // Load MCP config
+        let mcp_config = cdcx_core::config::McpConfig::load_default()
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let mut mcp_enabled = [false; 8];
+        for (i, (name, _)) in MCP_SERVICES.iter().enumerate() {
+            mcp_enabled[i] = mcp_config.services.iter().any(|s| s == name);
+        }
+        let mcp_dangerous = mcp_config.allow_dangerous;
 
         Self {
             selected: 0,
@@ -108,6 +115,8 @@ impl SettingsPanel {
             original_ticker_speed_divisor: current_ticker_speed_divisor,
             original_tick_rate_ms: current_tick_rate_ms,
             saved: false,
+            mcp_enabled,
+            mcp_dangerous,
         }
     }
 
@@ -131,13 +140,21 @@ impl SettingsPanel {
         TICKER_SPEEDS[self.ticker_speed_idx].1
     }
 
+    fn is_mcp_row(&self) -> bool {
+        self.selected >= TUI_ROW_COUNT
+    }
+
+    fn mcp_row_index(&self) -> usize {
+        self.selected - TUI_ROW_COUNT
+    }
+
     pub fn on_key(&mut self, key: KeyEvent) -> SettingsAction {
         match key.code {
             KeyCode::Esc | KeyCode::Char(',') => {
                 if self.saved {
                     return SettingsAction::Close;
                 }
-                // Revert theme and ticker speed if changed but not saved
+                // Revert live-previewed TUI changes
                 let theme_changed = self.selected_theme_name() != self.original_theme_name;
                 let speed_changed =
                     self.selected_ticker_speed_divisor() != self.original_ticker_speed_divisor;
@@ -147,9 +164,11 @@ impl SettingsPanel {
                             theme: original,
                             tick_rate_ms: self.original_tick_rate_ms,
                             ticker_speed_divisor: self.original_ticker_speed_divisor,
+                            mcp_error: None,
                         };
                     }
                 }
+                // MCP changes are discarded (never written to disk)
                 SettingsAction::Close
             }
             KeyCode::Up => {
@@ -159,8 +178,14 @@ impl SettingsPanel {
                 SettingsAction::None
             }
             KeyCode::Down => {
-                if self.selected < SettingsRow::ALL.len() - 1 {
+                if self.selected < TOTAL_ROWS - 1 {
                     self.selected += 1;
+                }
+                SettingsAction::None
+            }
+            KeyCode::Char(' ') => {
+                if self.is_mcp_row() {
+                    self.toggle_mcp();
                 }
                 SettingsAction::None
             }
@@ -168,19 +193,40 @@ impl SettingsPanel {
             KeyCode::Right | KeyCode::Tab => self.cycle_value(1),
             KeyCode::Enter => {
                 self.saved = true;
+                let mcp_error = self.save_mcp_config().err();
                 SettingsAction::Save {
                     theme: self.selected_theme().clone(),
                     tick_rate_ms: self.selected_tick_rate_ms(),
                     ticker_speed_divisor: self.selected_ticker_speed_divisor(),
+                    mcp_error,
                 }
             }
             _ => SettingsAction::None,
         }
     }
 
+    fn toggle_mcp(&mut self) {
+        let idx = self.mcp_row_index();
+        if idx < MCP_SERVICES.len() {
+            if idx == 0 {
+                // "market" cannot be disabled
+                self.mcp_enabled[0] = true;
+            } else {
+                self.mcp_enabled[idx] = !self.mcp_enabled[idx];
+            }
+        } else {
+            self.mcp_dangerous = !self.mcp_dangerous;
+        }
+    }
+
     fn cycle_value(&mut self, direction: i32) -> SettingsAction {
-        match SettingsRow::ALL[self.selected] {
-            SettingsRow::Theme => {
+        if self.is_mcp_row() {
+            self.toggle_mcp();
+            return SettingsAction::None;
+        }
+        match self.selected {
+            0 => {
+                // Theme
                 let len = self.themes.len();
                 if direction > 0 {
                     self.theme_idx = (self.theme_idx + 1) % len;
@@ -189,7 +235,8 @@ impl SettingsPanel {
                 }
                 SettingsAction::ThemeChanged(self.selected_theme().clone())
             }
-            SettingsRow::TickerSpeed => {
+            1 => {
+                // TickerSpeed
                 let len = TICKER_SPEEDS.len();
                 if direction > 0 {
                     self.ticker_speed_idx = (self.ticker_speed_idx + 1) % len;
@@ -198,7 +245,8 @@ impl SettingsPanel {
                 }
                 SettingsAction::TickerSpeedChanged(self.selected_ticker_speed_divisor())
             }
-            SettingsRow::TickRate => {
+            2 => {
+                // TickRate
                 let len = TICK_RATES.len();
                 if direction > 0 {
                     self.tick_rate_idx = (self.tick_rate_idx + 1) % len;
@@ -207,12 +255,27 @@ impl SettingsPanel {
                 }
                 SettingsAction::None
             }
+            _ => SettingsAction::None,
         }
     }
 
+    fn save_mcp_config(&self) -> Result<(), String> {
+        let services: Vec<String> = MCP_SERVICES
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.mcp_enabled[*i])
+            .map(|(_, (name, _))| name.to_string())
+            .collect();
+        let config = cdcx_core::config::McpConfig {
+            services,
+            allow_dangerous: self.mcp_dangerous,
+        };
+        config.save().map_err(|e| e.to_string())
+    }
+
     pub fn draw(&self, frame: &mut Frame, area: Rect, colors: &ThemeColors) {
-        let width = 52u16;
-        let height = 20u16;
+        let width = 56u16;
+        let height = 26u16;
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
         let modal = Rect::new(x, y, width.min(area.width), height.min(area.height));
@@ -226,33 +289,35 @@ impl SettingsPanel {
         let inner = block.inner(modal);
         frame.render_widget(block, modal);
 
-        let [settings_area, _, preview_area, _, footer_area] = Layout::vertical([
-            Constraint::Length(5),
-            Constraint::Length(1),
+        let [settings_area, preview_area, _, footer_area] = Layout::vertical([
+            Constraint::Length(14), // 3 TUI + 1 divider + 8 services + 1 dangerous + 1 pad
             Constraint::Fill(1),
             Constraint::Length(1),
             Constraint::Length(1),
         ])
         .areas(inner);
 
-        // Settings rows
         let mut lines = Vec::new();
-        for (i, row) in SettingsRow::ALL.iter().enumerate() {
-            let is_selected = i == self.selected;
-            let label = row.label();
-            let value = match row {
-                SettingsRow::Theme => self.selected_theme_name().to_string(),
-                SettingsRow::TickerSpeed => self.selected_ticker_speed_label().to_string(),
-                SettingsRow::TickRate => {
-                    let (ms, desc) = TICK_RATES[self.tick_rate_idx];
-                    if ms == self.original_tick_rate_ms {
-                        desc.to_string()
-                    } else {
-                        format!("{} *", desc)
-                    }
-                }
-            };
 
+        // --- TUI settings (rows 0-2) ---
+        let tui_rows: &[(&str, String)] = &[
+            ("Theme", self.selected_theme_name().to_string()),
+            (
+                "Ticker Tape",
+                self.selected_ticker_speed_label().to_string(),
+            ),
+            ("Tick Rate", {
+                let (ms, desc) = TICK_RATES[self.tick_rate_idx];
+                if ms == self.original_tick_rate_ms {
+                    desc.to_string()
+                } else {
+                    format!("{} *", desc)
+                }
+            }),
+        ];
+
+        for (i, (label, value)) in tui_rows.iter().enumerate() {
+            let is_selected = i == self.selected;
             let arrow_style = if is_selected {
                 Style::default().fg(colors.accent)
             } else {
@@ -270,76 +335,156 @@ impl SettingsPanel {
             } else {
                 Style::default().fg(colors.fg)
             };
-
             lines.push(Line::from(vec![
                 Span::styled(if is_selected { " \u{25b6} " } else { "   " }, arrow_style),
                 Span::styled(format!("{:<12}", label), label_style),
                 Span::styled(" \u{25c0} ", arrow_style),
-                Span::styled(value, value_style),
+                Span::styled(value.clone(), value_style),
                 Span::styled(" \u{25b6}", arrow_style),
             ]));
         }
 
-        // Tick rate note
-        if self.selected_tick_rate_ms() != self.original_tick_rate_ms {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "   * takes effect on next launch",
-                Style::default().fg(colors.muted),
-            )));
+        // --- MCP section divider ---
+        lines.push(Line::from(Span::styled(
+            "   \u{2500}\u{2500} MCP Services \u{2500}\u{2500}",
+            Style::default().fg(colors.muted),
+        )));
+
+        // --- MCP service checkboxes (rows TUI_ROW_COUNT .. TUI_ROW_COUNT+8) ---
+        for (i, (name, desc)) in MCP_SERVICES.iter().enumerate() {
+            let row_idx = TUI_ROW_COUNT + i;
+            let is_selected = row_idx == self.selected;
+            let checked = self.mcp_enabled[i];
+
+            let checkbox = if checked { "[\u{2713}]" } else { "[ ]" };
+            let check_style = if checked {
+                Style::default().fg(colors.positive)
+            } else {
+                Style::default().fg(colors.muted)
+            };
+            let label_style = if is_selected {
+                Style::default()
+                    .fg(colors.header)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(colors.fg)
+            };
+            let desc_style = Style::default().fg(colors.muted);
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if is_selected { " \u{25b6} " } else { "   " },
+                    if is_selected {
+                        Style::default().fg(colors.accent)
+                    } else {
+                        Style::default().fg(colors.muted)
+                    },
+                ),
+                Span::styled(checkbox, check_style),
+                Span::styled(format!(" {:<10}", name), label_style),
+                Span::styled(*desc, desc_style),
+            ]));
+        }
+
+        // --- allow_dangerous toggle (last MCP row) ---
+        {
+            let row_idx = TUI_ROW_COUNT + MCP_SERVICES.len();
+            let is_selected = row_idx == self.selected;
+            let checked = self.mcp_dangerous;
+
+            let checkbox = if checked { "[\u{2713}]" } else { "[ ]" };
+            let check_style = if checked {
+                Style::default().fg(colors.negative)
+            } else {
+                Style::default().fg(colors.muted)
+            };
+            let label_style = if is_selected {
+                Style::default()
+                    .fg(colors.header)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(colors.fg)
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    if is_selected { " \u{25b6} " } else { "   " },
+                    if is_selected {
+                        Style::default().fg(colors.accent)
+                    } else {
+                        Style::default().fg(colors.muted)
+                    },
+                ),
+                Span::styled(checkbox, check_style),
+                Span::styled(" allow_dangerous", label_style),
+            ]));
         }
 
         frame.render_widget(Paragraph::new(lines), settings_area);
 
-        // Live theme preview
-        let preview_theme = self.selected_theme();
-        let c = &preview_theme.colors;
-        let preview_lines = vec![
-            Line::from(Span::styled(" Preview:", Style::default().fg(c.muted))),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    " BTC_USDT  ",
-                    Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("67,234.50  ", Style::default().fg(c.fg)),
-                Span::styled("+2.34%  ", Style::default().fg(c.positive)),
-                Span::styled("Vol: 1.2B", Style::default().fg(c.volume)),
-            ]),
-            Line::from(vec![
-                Span::styled(" ETH_USDT  ", Style::default().fg(c.fg)),
-                Span::styled(" 3,456.78  ", Style::default().fg(c.fg)),
-                Span::styled("-0.87%  ", Style::default().fg(c.negative)),
-                Span::styled("Vol: 892M", Style::default().fg(c.volume)),
-            ]),
-            Line::from(vec![
-                Span::styled(" SOL_USDT  ", Style::default().fg(c.fg)),
-                Span::styled("   178.92  ", Style::default().fg(c.fg)),
-                Span::styled("+5.12%  ", Style::default().fg(c.positive)),
-                Span::styled("Vol: 445M", Style::default().fg(c.volume)),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(" Status: ", Style::default().fg(c.muted)),
-                Span::styled("LIVE", Style::default().fg(c.positive)),
-                Span::styled("  |  ", Style::default().fg(c.border)),
-                Span::styled(
-                    "PROD",
-                    Style::default().fg(c.status_bar_fg).bg(c.status_bar_bg),
-                ),
-            ]),
-        ];
-        frame.render_widget(Paragraph::new(preview_lines), preview_area);
+        // Theme preview
+        if preview_area.height >= 5 {
+            let preview_theme = self.selected_theme();
+            let c = &preview_theme.colors;
+            let preview_lines = vec![
+                Line::from(Span::styled(
+                    "   \u{2500}\u{2500} Preview \u{2500}\u{2500}",
+                    Style::default().fg(c.muted),
+                )),
+                Line::from(vec![
+                    Span::styled(
+                        "   BTC_USDT  ",
+                        Style::default().fg(c.accent).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("12,345.67  ", Style::default().fg(c.fg)),
+                    Span::styled("+2.34%  ", Style::default().fg(c.positive)),
+                    Span::styled("Vol: 1.2B", Style::default().fg(c.volume)),
+                ]),
+                Line::from(vec![
+                    Span::styled("   ETH_USDT  ", Style::default().fg(c.fg)),
+                    Span::styled(" 1,234.56  ", Style::default().fg(c.fg)),
+                    Span::styled("-0.87%  ", Style::default().fg(c.negative)),
+                    Span::styled("Vol: 892M", Style::default().fg(c.volume)),
+                ]),
+                Line::from(vec![
+                    Span::styled("   SOL_USDT  ", Style::default().fg(c.fg)),
+                    Span::styled("   123.45  ", Style::default().fg(c.fg)),
+                    Span::styled("+5.12%  ", Style::default().fg(c.positive)),
+                    Span::styled("Vol: 445M", Style::default().fg(c.volume)),
+                ]),
+                Line::from(vec![
+                    Span::styled("   Status: ", Style::default().fg(c.muted)),
+                    Span::styled("LIVE", Style::default().fg(c.positive)),
+                    Span::styled("  |  ", Style::default().fg(c.border)),
+                    Span::styled(
+                        "PROD",
+                        Style::default().fg(c.status_bar_fg).bg(c.status_bar_bg),
+                    ),
+                ]),
+            ];
+            frame.render_widget(Paragraph::new(preview_lines), preview_area);
+        }
 
-        // Footer
-        let footer = Line::from(vec![
-            Span::styled(" Enter", Style::default().fg(colors.accent)),
-            Span::styled(":save  ", Style::default().fg(colors.muted)),
-            Span::styled("Esc", Style::default().fg(colors.accent)),
-            Span::styled(":close  ", Style::default().fg(colors.muted)),
-            Span::styled("\u{2190}\u{2192}", Style::default().fg(colors.accent)),
-            Span::styled(":change", Style::default().fg(colors.muted)),
-        ]);
+        // Footer — context-sensitive
+        let footer = if self.is_mcp_row() {
+            Line::from(vec![
+                Span::styled(" Space", Style::default().fg(colors.accent)),
+                Span::styled(":toggle  ", Style::default().fg(colors.muted)),
+                Span::styled("Enter", Style::default().fg(colors.accent)),
+                Span::styled(":save  ", Style::default().fg(colors.muted)),
+                Span::styled("Esc", Style::default().fg(colors.accent)),
+                Span::styled(":discard", Style::default().fg(colors.muted)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled(" \u{2190}\u{2192}", Style::default().fg(colors.accent)),
+                Span::styled(":change  ", Style::default().fg(colors.muted)),
+                Span::styled("Enter", Style::default().fg(colors.accent)),
+                Span::styled(":save  ", Style::default().fg(colors.muted)),
+                Span::styled("Esc", Style::default().fg(colors.accent)),
+                Span::styled(":discard", Style::default().fg(colors.muted)),
+            ])
+        };
         frame.render_widget(Paragraph::new(footer), footer_area);
     }
 }
@@ -526,26 +671,26 @@ mod tests {
     fn test_navigate_rows() {
         let mut panel = SettingsPanel::new("terminal-pro", 250, 2);
         assert_eq!(panel.selected, 0);
+        // Navigate down through all rows
+        for expected in 1..TOTAL_ROWS {
+            panel.on_key(KeyEvent::new(
+                KeyCode::Down,
+                crossterm::event::KeyModifiers::NONE,
+            ));
+            assert_eq!(panel.selected, expected);
+        }
+        // Clamped at last row
         panel.on_key(KeyEvent::new(
             KeyCode::Down,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(panel.selected, 1);
-        panel.on_key(KeyEvent::new(
-            KeyCode::Down,
-            crossterm::event::KeyModifiers::NONE,
-        ));
-        assert_eq!(panel.selected, 2);
-        panel.on_key(KeyEvent::new(
-            KeyCode::Down,
-            crossterm::event::KeyModifiers::NONE,
-        ));
-        assert_eq!(panel.selected, 2); // clamped
+        assert_eq!(panel.selected, TOTAL_ROWS - 1);
+        // Navigate back up
         panel.on_key(KeyEvent::new(
             KeyCode::Up,
             crossterm::event::KeyModifiers::NONE,
         ));
-        assert_eq!(panel.selected, 1);
+        assert_eq!(panel.selected, TOTAL_ROWS - 2);
     }
 
     // ---- Watchlist persistence (Issue #23) ----

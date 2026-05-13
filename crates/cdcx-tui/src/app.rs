@@ -85,6 +85,12 @@ impl App {
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
+        // Ctrl+C: quit (always works, regardless of overlays)
+        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+            self.should_quit = true;
+            return;
+        }
+
         // Settings panel — intercept all keys when open
         if let Some(ref mut panel) = self.settings {
             match panel.on_key(key) {
@@ -101,6 +107,7 @@ impl App {
                     theme,
                     tick_rate_ms,
                     ticker_speed_divisor,
+                    mcp_error,
                 } => {
                     let theme_name = theme.name.clone();
                     self.state.theme = theme;
@@ -117,9 +124,17 @@ impl App {
                         tick_rate_ms,
                         speed_key,
                     ) {
-                        Ok(_) => self
-                            .state
-                            .toast("Settings saved", crate::state::ToastStyle::Success),
+                        Ok(_) => {
+                            if let Some(e) = mcp_error {
+                                self.state.toast(
+                                    format!("MCP config save failed: {}", e),
+                                    crate::state::ToastStyle::Error,
+                                );
+                            } else {
+                                self.state
+                                    .toast("Settings saved", crate::state::ToastStyle::Success);
+                            }
+                        }
                         Err(e) => self.state.toast(
                             format!("Save failed: {}", e),
                             crate::state::ToastStyle::Error,
@@ -149,12 +164,6 @@ impl App {
                     self.show_help = false;
                 }
             }
-            return;
-        }
-
-        // Ctrl+C: quit (always works, even during workflows)
-        if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
-            self.should_quit = true;
             return;
         }
 
