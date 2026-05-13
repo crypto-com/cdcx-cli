@@ -106,7 +106,7 @@ cdcx mcp config --reset                     # Reset to defaults (market only)
 
 Service groups: `market`, `account`, `trade`, `advanced`, `margin`, `staking`, `funding`, `fiat`, `otc`, `stream`
 
-Configuration is stored in `~/.config/cdcx/mcp.toml` and persists across updates. CLI flags (`--services`, `--allow-dangerous`) override the config file when passed explicitly.
+Configuration is stored in `~/.config/cdcx/mcp.toml` and persists across updates.
 
 > **Note:** `account` also exposes historical endpoints (orders, trades, transactions). `funding` covers wallet deposit/withdrawal endpoints. Paper trading is a CLI-only feature and has no MCP tools.
 
