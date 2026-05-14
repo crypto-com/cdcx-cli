@@ -200,14 +200,15 @@ pub async fn run_setup() -> Result<(), CdcxError> {
     };
 
     // Step 4: API credentials
+    let api_keys_url = "https://crypto.com/exchange/user/account-management/account-api-management";
     println!();
     if existing.is_some() {
         println!("  Enter your API credentials from the Crypto.com Exchange.");
-        println!("  (Settings > API Keys at https://crypto.com/exchange/personal/api-management)");
+        println!("  (Settings > API Keys at {api_keys_url})");
         println!("  Press Enter to leave existing credentials unchanged.");
     } else {
         println!("  Enter your API credentials from the Crypto.com Exchange.");
-        println!("  (Settings > API Keys at https://crypto.com/exchange/personal/api-management)");
+        println!("  (Settings > API Keys at {api_keys_url})");
     }
     println!();
 
