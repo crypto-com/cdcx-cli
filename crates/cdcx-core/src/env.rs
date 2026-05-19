@@ -177,11 +177,13 @@ mod tests {
     #[test]
     fn test_resolve_flag_wins() {
         use crate::config::{Config, ProfileConfig};
+        use std::collections::HashMap;
         let config = Config {
             default: Some(ProfileConfig {
                 api_key: "k".into(),
                 api_secret: "s".into(),
                 environment: "uat".into(),
+                envs: HashMap::new(),
             }),
             profiles: None,
             disable_update_check: false,
@@ -203,11 +205,13 @@ mod tests {
     #[test]
     fn test_resolve_config_used_when_no_flag() {
         use crate::config::{Config, ProfileConfig};
+        use std::collections::HashMap;
         let config = Config {
             default: Some(ProfileConfig {
                 api_key: "k".into(),
                 api_secret: "s".into(),
                 environment: "uat".into(),
+                envs: HashMap::new(),
             }),
             profiles: None,
             disable_update_check: false,

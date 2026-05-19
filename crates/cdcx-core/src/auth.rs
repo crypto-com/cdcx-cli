@@ -17,22 +17,35 @@ impl std::fmt::Debug for Credentials {
 }
 
 impl Credentials {
+    pub fn from_parts(api_key: String, api_secret: String) -> Self {
+        Self {
+            api_key,
+            api_secret,
+        }
+    }
+
     pub fn resolve(config: Option<&Config>, profile: Option<&str>) -> Result<Self, CdcxError> {
         // 1. Environment variables (CDCX_ prefix takes priority, CDC_ as fallback)
-        let env_key = std::env::var("CDCX_API_KEY").or_else(|_| std::env::var("CDC_API_KEY"));
-        let env_secret =
-            std::env::var("CDCX_API_SECRET").or_else(|_| std::env::var("CDC_API_SECRET"));
+        // Treat empty strings as unset (plugin frameworks may pass "" for unconfigured values)
+        let env_key = std::env::var("CDCX_API_KEY")
+            .or_else(|_| std::env::var("CDC_API_KEY"))
+            .ok()
+            .filter(|s| !s.trim().is_empty());
+        let env_secret = std::env::var("CDCX_API_SECRET")
+            .or_else(|_| std::env::var("CDC_API_SECRET"))
+            .ok()
+            .filter(|s| !s.trim().is_empty());
         match (&env_key, &env_secret) {
-            (Ok(key), Ok(secret)) => {
+            (Some(key), Some(secret)) => {
                 return Ok(Self {
                     api_key: key.clone(),
                     api_secret: secret.clone(),
                 });
             }
-            (Ok(_), Err(_)) => {
+            (Some(_), None) => {
                 eprintln!("warning: CDCX_API_KEY/CDC_API_KEY is set but CDCX_API_SECRET/CDC_API_SECRET is not — ignoring partial env credentials");
             }
-            (Err(_), Ok(_)) => {
+            (None, Some(_)) => {
                 eprintln!("warning: CDCX_API_SECRET/CDC_API_SECRET is set but CDCX_API_KEY/CDC_API_KEY is not — ignoring partial env credentials");
             }
             _ => {}
@@ -63,11 +76,13 @@ mod tests {
     #[test]
     fn test_resolve_from_config() {
         use crate::config::{Config, ProfileConfig};
+        use std::collections::HashMap;
         let config = Config {
             default: Some(ProfileConfig {
                 api_key: "cfg_key".into(),
                 api_secret: "cfg_secret".into(),
                 environment: "production".into(),
+                envs: HashMap::new(),
             }),
             profiles: None,
             disable_update_check: false,

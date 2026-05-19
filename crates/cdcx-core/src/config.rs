@@ -9,6 +9,18 @@ pub struct ProfileConfig {
     pub api_key: String,
     pub api_secret: String,
     pub environment: String,
+    #[serde(default)]
+    pub envs: HashMap<String, String>,
+}
+
+impl ProfileConfig {
+    /// Load envs into process environment variables.
+    /// Each key is uppercased before being set.
+    pub fn apply_env(&self) {
+        for (key, value) in &self.envs {
+            std::env::set_var(key.to_uppercase(), value);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +327,11 @@ impl Config {
             None => self
                 .default
                 .clone()
+                .or_else(|| {
+                    self.profiles
+                        .as_ref()
+                        .and_then(|p| p.get("default").cloned())
+                })
                 .ok_or_else(|| CdcxError::Config("No default profile found in config".to_string())),
             Some(profile_name) => {
                 let profiles = self.profiles.as_ref().ok_or_else(|| {
@@ -405,6 +422,21 @@ environment = "production"
         let config = Config::parse(toml).unwrap();
         assert!(config.disable_update_check);
         assert!(config.default.is_none());
+    }
+
+    #[test]
+    fn test_profiles_default_fallback() {
+        let toml = r#"
+[profiles.default]
+api_key = "pkey"
+api_secret = "psecret"
+environment = "uat"
+"#;
+        let config = Config::parse(toml).unwrap();
+        let profile = config.profile(None).unwrap();
+        assert_eq!(profile.api_key, "pkey");
+        assert_eq!(profile.api_secret, "psecret");
+        assert_eq!(profile.environment, "uat");
     }
 
     mod mcp_config_tests {
