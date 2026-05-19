@@ -58,7 +58,11 @@ pub async fn run_auth_list() -> Result<(), CdcxError> {
         let masked_key = mask_key(&profile.api_key);
 
         let rest_url = std::env::var("CDCX_REST_URL").unwrap_or_default();
-        let cache_key = (profile.api_key.clone(), profile.environment.clone(), rest_url);
+        let cache_key = (
+            profile.api_key.clone(),
+            profile.environment.clone(),
+            rest_url,
+        );
         let auth_status = if let Some(cached) = cache.get(&cache_key) {
             cached.clone()
         } else {

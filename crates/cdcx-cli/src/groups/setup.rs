@@ -402,7 +402,7 @@ mod tests {
             api_key: r#"key" with_quote = "injected"#.to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
-                envs: HashMap::new(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -415,7 +415,7 @@ mod tests {
             api_key: r#"key\with\backslash"#.to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
-                envs: HashMap::new(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -428,7 +428,7 @@ mod tests {
             api_key: "key\nwith\nnewline".to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
-                envs: HashMap::new(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -441,7 +441,7 @@ mod tests {
             api_key: r#"key[malicious] = 1"#.to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
-                envs: HashMap::new(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -454,7 +454,7 @@ mod tests {
             api_key: r#"key"with"multiple"quotes"and\escapes"#.to_string(),
             api_secret: "secret@#$%^&*()".to_string(),
             environment: "production".to_string(),
-                envs: HashMap::new(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -468,7 +468,7 @@ mod tests {
             api_key: "key".to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
-                envs: HashMap::new(),
+            envs: HashMap::new(),
         };
 
         // Profile names could potentially be user-controlled too
