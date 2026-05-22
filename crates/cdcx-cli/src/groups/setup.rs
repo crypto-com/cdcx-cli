@@ -275,6 +275,7 @@ pub async fn run_setup() -> Result<(), CdcxError> {
         api_key,
         api_secret,
         environment: environment.to_string(),
+        envs: HashMap::new(),
     };
 
     let toml_content = if action == 2 || existing.is_none() {
@@ -401,6 +402,7 @@ mod tests {
             api_key: r#"key" with_quote = "injected"#.to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -413,6 +415,7 @@ mod tests {
             api_key: r#"key\with\backslash"#.to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -425,6 +428,7 @@ mod tests {
             api_key: "key\nwith\nnewline".to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -437,6 +441,7 @@ mod tests {
             api_key: r#"key[malicious] = 1"#.to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -449,6 +454,7 @@ mod tests {
             api_key: r#"key"with"multiple"quotes"and\escapes"#.to_string(),
             api_secret: "secret@#$%^&*()".to_string(),
             environment: "production".to_string(),
+            envs: HashMap::new(),
         };
 
         test_serialization_roundtrip(profile)?;
@@ -462,6 +468,7 @@ mod tests {
             api_key: "key".to_string(),
             api_secret: "secret".to_string(),
             environment: "production".to_string(),
+            envs: HashMap::new(),
         };
 
         // Profile names could potentially be user-controlled too
@@ -492,6 +499,7 @@ mod tests {
                 api_key: r#"key1" malicious = "value"#.to_string(),
                 api_secret: "secret1".to_string(),
                 environment: "production".to_string(),
+                envs: HashMap::new(),
             },
         );
 
@@ -501,6 +509,7 @@ mod tests {
                 api_key: "key2".to_string(),
                 api_secret: r#"secret2\n[injection]"#.to_string(),
                 environment: "uat".to_string(),
+                envs: HashMap::new(),
             },
         );
 
@@ -509,6 +518,7 @@ mod tests {
                 api_key: "default_key".to_string(),
                 api_secret: "default_secret".to_string(),
                 environment: "production".to_string(),
+                envs: HashMap::new(),
             }),
             profiles: Some(profiles),
         };
@@ -536,6 +546,7 @@ mod tests {
                 api_key: r#"test"key"with"quotes"#.to_string(),
                 api_secret: r#"test\secret\with\backslashes"#.to_string(),
                 environment: "production".to_string(),
+                envs: HashMap::new(),
             }),
             profiles: None,
         };

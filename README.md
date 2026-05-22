@@ -149,6 +149,36 @@ codex plugin marketplace add crypto-com/cdcx-cli
 
 Then configure services with `cdcx mcp config --enable trade,account`.
 
+### Switching Profiles for MCP
+
+The MCP server reads `CDCX_PROFILE` from the environment to select which config profile to use. Set it in your MCP client's env config.
+
+**Claude Code** (`~/.claude/settings.json`):
+
+```json
+{
+  "env": {
+    "CDCX_PROFILE": "uat"
+  }
+}
+```
+
+**Other MCP clients** — add `"env"` to the server definition:
+
+```json
+{
+  "cdcx": {
+    "command": "npx",
+    "args": ["-y", "@cryptocom/cdcx-cli@latest", "mcp"],
+    "env": {
+      "CDCX_PROFILE": "prod"
+    }
+  }
+}
+```
+
+This selects the matching `[profiles.<name>]` section from `~/.config/cdcx/config.toml`.
+
 ### Agent Skills
 
 13 skill files in `skills/` covering:
@@ -307,9 +337,12 @@ cdcx tui --setup                       # Setup wizard
 
 Resolved in order: flags > `CDCX_API_KEY`/`CDCX_API_SECRET` env > `CDC_API_KEY`/`CDC_API_SECRET` env > `~/.config/cdcx/config.toml` profile.
 
+Empty or whitespace-only env vars are treated as unset and fall through to the config file.
+
 ```bash
 cdcx setup                             # Interactive credential setup
 cdcx --profile uat account summary     # Use named profile
+cdcx auth list                         # Show all profiles with auth status
 ```
 
 ### MCP Config

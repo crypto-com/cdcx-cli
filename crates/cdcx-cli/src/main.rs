@@ -100,6 +100,13 @@ async fn main() {
     let global = GlobalFlags::from_arg_matches(&matches).expect("Failed to parse global flags");
     let format = OutputFormat::resolve(global.output.as_deref());
 
+    // Apply profile env overrides (e.g. CDCX_REST_URL) before any network calls.
+    if let Some(ref cfg) = cdcx_config {
+        if let Ok(profile) = cfg.profile(global.profile.as_deref()) {
+            profile.apply_env();
+        }
+    }
+
     // Initialize tracing if verbose flag is set
     if global.verbose {
         tracing_subscriber::fmt()
@@ -180,6 +187,15 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Some(("auth", sub)) => match sub.subcommand() {
+            Some(("list", _)) => {
+                if let Err(e) = groups::auth::run_auth_list().await {
+                    eprintln!("{}", format_error(&e.to_envelope(), format));
+                    std::process::exit(1);
+                }
+            }
+            _ => unreachable!("subcommand_required is set"),
+        },
         Some(("update", sub)) => {
             let check_only = sub.get_flag("check");
             let disable = sub.get_flag("disable");

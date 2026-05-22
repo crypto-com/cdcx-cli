@@ -683,7 +683,19 @@ pub async fn run_mcp(
     // Most service groups (except "market") have private endpoints
     let needs_auth = service_groups.iter().any(|g| g != "market");
     let config = load_config()?;
-    let env = Environment::resolve(None, config.as_ref(), None).unwrap_or(Environment::Production);
+    let profile = std::env::var("CDCX_PROFILE")
+        .or_else(|_| std::env::var("CDC_PROFILE"))
+        .ok();
+    let env = Environment::resolve(None, config.as_ref(), profile.as_deref())
+        .unwrap_or(Environment::Production);
+
+    // Apply profile env overrides (e.g. CDCX_REST_URL) before building the client.
+    if let Some(ref cfg) = config {
+        if let Ok(p) = cfg.profile(profile.as_deref()) {
+            p.apply_env();
+        }
+    }
+
     let api_client = if needs_auth {
         if config.is_some() {
             if let Some(path) = cdcx_core::config::Config::default_path() {
@@ -691,7 +703,7 @@ pub async fn run_mcp(
             }
         }
         // Try to resolve credentials from environment or config
-        match Credentials::resolve(config.as_ref(), None) {
+        match Credentials::resolve(config.as_ref(), profile.as_deref()) {
             Ok(creds) => Some(cdcx_core::api_client::ApiClient::new(Some(creds), env)),
             Err(_) => {
                 // If credentials cannot be resolved, continue without authentication
@@ -719,6 +731,8 @@ pub async fn run_mcp(
     eprintln!("  services:  {}", services_display);
     eprintln!("  tools:     {}", tool_count);
     eprintln!("  auth:      {}", auth_status);
+    eprintln!("  env:       {:?}", env);
+    eprintln!("  profile:   {:?}", profile);
     if allow_dangerous {
         eprintln!("  dangerous: enabled");
     }

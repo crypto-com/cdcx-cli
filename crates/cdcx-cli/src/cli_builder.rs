@@ -147,6 +147,15 @@ pub fn build_static_cli() -> clap::Command {
     app =
         app.subcommand(clap::Command::new("setup").about("Configure API credentials and profiles"));
     app = app.subcommand(
+        clap::Command::new("auth")
+            .about("Manage authentication profiles")
+            .subcommand_required(true)
+            .arg_required_else_help(true)
+            .subcommand(
+                clap::Command::new("list").about("List all profiles with account balances"),
+            ),
+    );
+    app = app.subcommand(
         clap::Command::new("mcp")
             .about("MCP server and configuration")
             .args_conflicts_with_subcommands(true)
