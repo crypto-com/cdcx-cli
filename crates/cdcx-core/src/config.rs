@@ -9,7 +9,7 @@ pub struct ProfileConfig {
     pub api_key: String,
     pub api_secret: String,
     pub environment: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub envs: HashMap<String, String>,
 }
 

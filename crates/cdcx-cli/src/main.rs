@@ -194,6 +194,12 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
+            Some(("login", _)) => {
+                if let Err(e) = groups::auth_login::run_auth_login().await {
+                    eprintln!("{}", format_error(&e.to_envelope(), format));
+                    std::process::exit(1);
+                }
+            }
             _ => unreachable!("subcommand_required is set"),
         },
         Some(("update", sub)) => {

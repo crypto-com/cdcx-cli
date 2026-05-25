@@ -39,6 +39,12 @@
           "type": "string",
           "enum": ["production", "uat"],
           "description": "Target environment"
+        },
+        "envs": {
+          "type": "object",
+          "description": "Extra env variables",
+          "properties": {},
+          "additionalProperties": true
         }
       },
       "required": ["api_key", "api_secret", "environment"],

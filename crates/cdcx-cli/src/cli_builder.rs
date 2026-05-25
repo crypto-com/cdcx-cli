@@ -151,9 +151,8 @@ pub fn build_static_cli() -> clap::Command {
             .about("Manage authentication profiles")
             .subcommand_required(true)
             .arg_required_else_help(true)
-            .subcommand(
-                clap::Command::new("list").about("List all profiles with account balances"),
-            ),
+            .subcommand(clap::Command::new("list").about("List all profiles with account balances"))
+            .subcommand(clap::Command::new("login").about("Log in via browser-based OAuth")),
     );
     app = app.subcommand(
         clap::Command::new("mcp")
