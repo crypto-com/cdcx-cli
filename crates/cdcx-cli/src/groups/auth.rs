@@ -12,7 +12,7 @@ pub async fn run_auth_list() -> Result<(), CdcxError> {
 
     if !path.exists() {
         return Err(CdcxError::Config(format!(
-            "No config file found at {}. Run 'cdcx setup' first.",
+            "No config file found at {}. Run 'cdcx auth login' first.",
             path.display()
         )));
     }
@@ -40,7 +40,7 @@ pub async fn run_auth_list() -> Result<(), CdcxError> {
 
     if profiles.is_empty() {
         return Err(CdcxError::Config(
-            "No profiles found in config. Run 'cdcx setup' first.".into(),
+            "No profiles found in config. Run 'cdcx auth login' first.".into(),
         ));
     }
 

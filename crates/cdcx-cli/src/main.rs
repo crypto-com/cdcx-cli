@@ -267,7 +267,9 @@ async fn main() {
                 Some(r) => r,
                 None => {
                     eprintln!("Error: No API schema cached.");
-                    eprintln!("Run 'cdcx setup' or 'cdcx schema update' to fetch the API schema.");
+                    eprintln!(
+                        "Run 'cdcx auth login' or 'cdcx schema update' to fetch the API schema."
+                    );
                     std::process::exit(1);
                 }
             };

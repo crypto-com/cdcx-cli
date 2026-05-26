@@ -61,7 +61,7 @@ impl Credentials {
         }
 
         Err(CdcxError::Config(
-            "No credentials found. Set CDC_API_KEY/CDC_API_SECRET environment variables or configure credentials in ~/.config/cdcx/config.toml (run cdcx setup)".into(),
+            "No credentials found. Set CDC_API_KEY/CDC_API_SECRET environment variables or configure credentials in ~/.config/cdcx/config.toml (run cdcx auth login)".into(),
         ))
     }
 }
