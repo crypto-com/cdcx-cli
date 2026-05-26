@@ -194,6 +194,12 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
+            Some(("login", _)) => {
+                if let Err(e) = groups::auth_login::run_auth_login().await {
+                    eprintln!("{}", format_error(&e.to_envelope(), format));
+                    std::process::exit(1);
+                }
+            }
             _ => unreachable!("subcommand_required is set"),
         },
         Some(("update", sub)) => {
@@ -261,7 +267,9 @@ async fn main() {
                 Some(r) => r,
                 None => {
                     eprintln!("Error: No API schema cached.");
-                    eprintln!("Run 'cdcx setup' or 'cdcx schema update' to fetch the API schema.");
+                    eprintln!(
+                        "Run 'cdcx auth login' or 'cdcx schema update' to fetch the API schema."
+                    );
                     std::process::exit(1);
                 }
             };

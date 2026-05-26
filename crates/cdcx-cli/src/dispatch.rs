@@ -199,7 +199,7 @@ pub async fn run_schema(
     let require_registry = || -> Result<&SchemaRegistry, CdcxError> {
         registry.ok_or_else(|| {
             CdcxError::Config(
-                "No API schema cached. Run 'cdcx setup' or 'cdcx schema update' first.".into(),
+                "No API schema cached. Run 'cdcx auth login' or 'cdcx schema update' first.".into(),
             )
         })
     };

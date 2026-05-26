@@ -96,7 +96,8 @@ impl SchemaRegistry {
             .load_cache()
             .ok_or_else(|| {
                 SchemaError::NoSpec(
-                    "No API schema cached. Run 'cdcx setup' or 'cdcx schema update' first.".into(),
+                    "No API schema cached. Run 'cdcx auth login' or 'cdcx schema update' first."
+                        .into(),
                 )
             })?;
 

@@ -22,6 +22,10 @@ tracing-subscriber = "0.3"
 rmcp = { version = "1.4", features = ["server", "transport-io"] }
 rpassword = "7"
 toml = "0.8"
+uuid = { version = "1", features = ["v4"] }
+open = "5"
+crossterm = "0.28"
+reqwest = { version = "0.12", features = ["json"] }
 
 [dev-dependencies]
 assert_cmd = "2"

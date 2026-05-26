@@ -199,38 +199,59 @@ pub async fn run_setup() -> Result<(), CdcxError> {
         _ => "uat",
     };
 
-    // Step 4: API credentials
-    let api_keys_url = "https://crypto.com/exchange/user/account-management/account-api-management";
-    println!();
-    if existing.is_some() {
-        println!("  Enter your API credentials from the Crypto.com Exchange.");
-        println!("  (Settings > API Keys at {api_keys_url})");
-        println!("  Press Enter to leave existing credentials unchanged.");
+    // Step 4: Credential method
+    let auth_method = prompt_choice(
+        "How would you like to authenticate?",
+        &["Browser login (recommended)", "Enter API key manually"],
+        0,
+    );
+
+    let (api_key, api_secret) = if auth_method == 0 {
+        // Browser-based OAuth
+        match super::auth_login::browser_oauth(environment).await? {
+            Some(creds) => creds,
+            None => {
+                println!("  Cancelled.");
+                return Ok(());
+            }
+        }
     } else {
-        println!("  Enter your API credentials from the Crypto.com Exchange.");
-        println!("  (Settings > API Keys at {api_keys_url})");
-    }
-    println!();
-
-    let api_key = prompt("  API Key: ");
-    if api_key.is_empty() {
+        // Manual API key entry
+        let api_keys_url =
+            "https://crypto.com/exchange/user/account-management/account-api-management";
+        println!();
         if existing.is_some() {
-            println!("  Keeping existing credentials.");
-            println!();
-            return Ok(());
+            println!("  Enter your API credentials from the Crypto.com Exchange.");
+            println!("  (Settings > API Keys at {api_keys_url})");
+            println!("  Press Enter to leave existing credentials unchanged.");
+        } else {
+            println!("  Enter your API credentials from the Crypto.com Exchange.");
+            println!("  (Settings > API Keys at {api_keys_url})");
         }
-        return Err(CdcxError::Config("API key cannot be empty".into()));
-    }
+        println!();
 
-    let api_secret = prompt_secret("  API Secret: ");
-    if api_secret.is_empty() {
-        if existing.is_some() {
-            println!("  Keeping existing credentials.");
-            println!();
-            return Ok(());
+        let key = prompt("  API Key: ");
+        if key.is_empty() {
+            if existing.is_some() {
+                println!("  Keeping existing credentials.");
+                println!();
+                return Ok(());
+            }
+            return Err(CdcxError::Config("API key cannot be empty".into()));
         }
-        return Err(CdcxError::Config("API secret cannot be empty".into()));
-    }
+
+        let secret = prompt_secret("  API Secret: ");
+        if secret.is_empty() {
+            if existing.is_some() {
+                println!("  Keeping existing credentials.");
+                println!();
+                return Ok(());
+            }
+            return Err(CdcxError::Config("API secret cannot be empty".into()));
+        }
+
+        (key, secret)
+    };
 
     // Step 5: Verify credentials
     println!();
