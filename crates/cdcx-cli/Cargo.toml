@@ -25,7 +25,7 @@ toml = "0.8"
 uuid = { version = "1", features = ["v4"] }
 open = "5"
 crossterm = "0.28"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 assert_cmd = "2"
