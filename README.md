@@ -130,7 +130,21 @@ claude plugin marketplace add crypto-com/cdcx-cli
 claude plugin install cdcx-cli@cdcx-cli
 ```
 
-**Codex CLI:**
+**Codex:**
+
+1. Open Plugins and click **+ Add more**:
+
+   ![Codex plugin list](site/img/codex-plugin-list.png)
+
+2. Add the marketplace source `crypto-com/cdcx-cli`:
+
+   ![Add marketplace](site/img/codex-add-marketplace.png)
+
+3. Enable the `cdcx-cli` plugin — it appears under your marketplace dropdown:
+
+   ![cdcx-cli enabled](site/img/codex-cdcx-cli.png)
+
+Or via the CLI:
 
 ```bash
 codex plugin marketplace add crypto-com/cdcx-cli
