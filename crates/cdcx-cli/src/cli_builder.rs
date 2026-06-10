@@ -152,7 +152,16 @@ pub fn build_static_cli() -> clap::Command {
             .subcommand_required(true)
             .arg_required_else_help(true)
             .subcommand(clap::Command::new("list").about("List all profiles with account balances"))
-            .subcommand(clap::Command::new("login").about("Log in via browser-based OAuth")),
+            .subcommand(
+                clap::Command::new("login")
+                    .about("Log in via browser-based OAuth")
+                    .arg(
+                        clap::Arg::new("oauth")
+                            .long("oauth")
+                            .help("Non-interactive login using production environment and default profile")
+                            .action(clap::ArgAction::SetTrue),
+                    ),
+            ),
     );
     app = app.subcommand(
         clap::Command::new("mcp")

@@ -64,6 +64,90 @@ fn prompt_choice(label: &str, options: &[&str], default: usize) -> usize {
         .min(options.len() - 1)
 }
 
+/// Save credentials to a profile (non-interactive).
+/// If `profile_name` is None, saves to the default profile.
+pub fn save_profile(
+    api_key: &str,
+    api_secret: &str,
+    environment: &str,
+    profile_name: Option<&str>,
+) -> Result<(), CdcxError> {
+    let path = config_path();
+
+    let existing = if path.exists() {
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| CdcxError::Config(format!("Failed to read config: {}", e)))?;
+        Some(Config::parse(&content)?)
+    } else {
+        None
+    };
+
+    let new_profile = ProfileConfig {
+        api_key: api_key.to_string(),
+        api_secret: api_secret.to_string(),
+        environment: environment.to_string(),
+        envs: HashMap::new(),
+    };
+
+    let config_file = if let Some(name) = profile_name {
+        let mut cf = if let Some(ref existing_cfg) = existing {
+            ConfigFile {
+                default: existing_cfg.default.clone(),
+                profiles: existing_cfg.profiles.clone(),
+            }
+        } else {
+            ConfigFile {
+                default: None,
+                profiles: None,
+            }
+        };
+        if cf.profiles.is_none() {
+            cf.profiles = Some(HashMap::new());
+        }
+        cf.profiles
+            .as_mut()
+            .unwrap()
+            .insert(name.to_string(), new_profile);
+        cf
+    } else if let Some(ref existing_cfg) = existing {
+        ConfigFile {
+            default: Some(new_profile),
+            profiles: existing_cfg.profiles.clone(),
+        }
+    } else {
+        ConfigFile {
+            default: Some(new_profile),
+            profiles: None,
+        }
+    };
+
+    let body = toml::to_string_pretty(&config_file)
+        .map_err(|e| CdcxError::Config(format!("Failed to serialize config: {}", e)))?;
+    let schema_url = cdcx_core::github::raw("main", "schemas/configs/config.json");
+    let toml_content = format!("#:schema {}\n\n{}", schema_url, body);
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| CdcxError::Config(format!("Failed to create config directory: {}", e)))?;
+        config::set_dir_owner_only(parent)
+            .map_err(|e| CdcxError::Config(format!("Failed to secure config directory: {}", e)))?;
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .map_err(|e| CdcxError::Config(format!("Failed to open config file: {}", e)))?;
+    file.write_all(toml_content.as_bytes())
+        .map_err(|e| CdcxError::Config(format!("Failed to write config: {}", e)))?;
+    drop(file);
+    config::set_file_owner_only(&path)
+        .map_err(|e| CdcxError::Config(format!("Failed to secure config file: {}", e)))?;
+
+    Ok(())
+}
+
 pub async fn run_setup() -> Result<(), CdcxError> {
     println!();
     println!("  cdcx setup");

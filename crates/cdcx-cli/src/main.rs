@@ -194,8 +194,18 @@ async fn main() {
                     std::process::exit(1);
                 }
             }
-            Some(("login", _)) => {
-                if let Err(e) = groups::auth_login::run_auth_login().await {
+            Some(("login", login_sub)) => {
+                let oauth = login_sub.get_flag("oauth");
+                let result = if oauth {
+                    groups::auth_login::run_auth_login_oauth(
+                        global.env.as_deref(),
+                        global.profile.as_deref(),
+                    )
+                    .await
+                } else {
+                    groups::auth_login::run_auth_login().await
+                };
+                if let Err(e) = result {
                     eprintln!("{}", format_error(&e.to_envelope(), format));
                     std::process::exit(1);
                 }

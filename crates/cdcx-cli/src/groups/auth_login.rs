@@ -84,6 +84,96 @@ pub async fn run_auth_login() -> Result<(), CdcxError> {
     super::setup::run_setup().await
 }
 
+/// Non-interactive OAuth login. Defaults to production environment and default profile.
+/// Skips raw mode and ESC detection so it can run in background/agent contexts.
+pub async fn run_auth_login_oauth(
+    env: Option<&str>,
+    profile: Option<&str>,
+) -> Result<(), CdcxError> {
+    let environment = env.unwrap_or("production");
+    let session_id = Uuid::new_v4().to_string();
+
+    let url = oauth_url(environment, &session_id);
+    println!();
+    println!("  Opening browser for authentication...");
+    println!("  {}", url);
+
+    if let Err(_) = open::that(&url) {
+        println!();
+        println!("  Could not open browser automatically.");
+        println!("  Please open the URL above manually.");
+    }
+
+    println!();
+    println!("  Waiting for authentication...");
+
+    let (api_key, secret_key) = poll_for_credentials_headless(environment, &session_id).await?;
+
+    super::setup::save_profile(&api_key, &secret_key, environment, profile)?;
+
+    let profile_label = profile.unwrap_or("default");
+    println!();
+    println!(
+        "  ✓ Logged in successfully ({}, {} profile)",
+        environment, profile_label
+    );
+    println!("  Test with: cdcx account summary");
+    println!();
+
+    Ok(())
+}
+
+/// Poll without raw mode or terminal interaction — safe for non-interactive contexts.
+async fn poll_for_credentials_headless(
+    environment: &str,
+    session_id: &str,
+) -> Result<(String, String), CdcxError> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .no_proxy()
+        .pool_max_idle_per_host(0)
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let base_url = poll_url(environment);
+    let start = Instant::now();
+
+    loop {
+        if start.elapsed() > POLL_TIMEOUT {
+            return Err(CdcxError::Config(
+                "Authentication timed out after 5 minutes".into(),
+            ));
+        }
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let url = format!("{}?ts={}", base_url, ts);
+        let body = serde_json::json!({ "session": session_id, "ts": ts });
+
+        if let Ok(r) = client
+            .post(&url)
+            .json(&body)
+            .header("Cache-Control", "no-cache, no-store")
+            .header("Pragma", "no-cache")
+            .send()
+            .await
+        {
+            if r.status() == reqwest::StatusCode::OK {
+                if let Ok(poll_resp) = r.json::<PollResponse>().await {
+                    if poll_resp.code == 0 {
+                        if let Some(result) = poll_resp.result {
+                            return Ok((result.api_key, result.secret_key));
+                        }
+                    }
+                }
+            }
+        }
+
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
 async fn poll_for_credentials(
     environment: &str,
     session_id: &str,
