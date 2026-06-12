@@ -661,7 +661,16 @@ fn extract_parameters(
                             .get("description")
                             .and_then(|d| d.as_str())
                             .unwrap_or_default();
-                        let raw_type = val.get("type").and_then(|t| t.as_str()).unwrap_or("string");
+                        let raw_type = val
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or_else(|| {
+                                if val.get("oneOf").is_some() || val.get("anyOf").is_some() {
+                                    "object"
+                                } else {
+                                    "string"
+                                }
+                            });
                         let mut is_required = required_list.contains(&name.to_string());
 
                         let enum_values = extract_enum_values(val, openapi_doc, schema_doc);
