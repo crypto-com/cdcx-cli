@@ -365,3 +365,154 @@ paths:
       responses:
         '200':
           description: Success
+  /private/bot/create-trading-bot:
+    post:
+      tags:
+        - Trading Bot API
+      summary: private/bot/create-trading-bot
+      description: Create a trading bot.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - bot_type
+                    - notify_on_bot_change
+                    - settings
+                  properties:
+                    bot_type:
+                      type: string
+                      enum:
+                        - DCA
+                        - TWAP
+                        - GRID
+                        - FUNDING_ARBITRAGE
+                      description: Type of trading bot
+                    notify_on_bot_change:
+                      type: boolean
+                      description: Push notifications on bot state changes
+                    display_name:
+                      type: string
+                      description: Display name of the trading bot
+                    settings:
+                      type: object
+                      description: Bot-type-specific settings
+      responses:
+        '200':
+          description: Success
+  /private/bot/terminate-trading-bot:
+    post:
+      tags:
+        - Trading Bot API
+      summary: private/bot/terminate-trading-bot
+      description: Terminate a trading bot.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - bot_id
+                    - bot_type
+                  properties:
+                    bot_id:
+                      type: integer
+                      description: Trading Bot ID
+                    bot_type:
+                      type: string
+                      enum:
+                        - DCA
+                        - TWAP
+                        - GRID
+                        - FUNDING_ARBITRAGE
+                      description: Type of trading bot
+                    close_position:
+                      type: boolean
+                      description: Whether to close open positions on termination
+      responses:
+        '200':
+          description: Success
+  /private/bot/get-trading-bots:
+    post:
+      tags:
+        - Trading Bot API
+      summary: private/bot/get-trading-bots
+      description: Get all trading bots.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - bot_types
+                  properties:
+                    bot_id:
+                      type: integer
+                      description: Find by Trading Bot ID
+                    bot_types:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - DCA
+                          - TWAP
+                          - GRID
+                          - FUNDING_ARBITRAGE
+                      description: Filter by bot type
+                    state:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - RUNNING
+                          - PAUSED
+                          - TERMINATED
+                      description: Filter by bot state
+                    page:
+                      type: integer
+                      description: Page number
+                    page_size:
+                      type: integer
+                      description: Page size
+      responses:
+        '200':
+          description: Success
+  /private/bot/get-trading-bot-executions:
+    post:
+      tags:
+        - Trading Bot API
+      summary: private/bot/get-trading-bot-executions
+      description: Returns execution history for a trading bot.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                params:
+                  type: object
+                  required:
+                    - bot_id
+                  properties:
+                    bot_id:
+                      type: integer
+                      description: Trading Bot ID
+                    page:
+                      type: integer
+                      description: Page number
+                    page_size:
+                      type: integer
+                      description: Page size
+      responses:
+        '200':
+          description: Success

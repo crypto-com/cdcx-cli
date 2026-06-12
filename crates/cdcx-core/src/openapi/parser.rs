@@ -41,6 +41,7 @@ pub fn tag_to_group(tag: &str) -> Option<&'static str> {
         "Staking" => Some("staking"),
         "Transaction History" => Some("history"),
         "OTC RFQ for Taker" => Some("otc"),
+        "Trading Bot API" => Some("bot"),
         _ => None,
     }
 }
@@ -57,6 +58,7 @@ pub fn group_description_for(group: &str) -> &'static str {
         "staking" => "Staking endpoints",
         "history" => "Transaction history endpoints",
         "otc" => "OTC RFQ trading endpoints",
+        "bot" => "Automated trading bot management",
         _ => "API endpoints",
     }
 }
@@ -151,6 +153,13 @@ pub fn derive_command_name(method: &str, group: &str) -> String {
                 name = rest.to_string();
             }
         }
+        "bot" => {
+            if let Some(rest) = name.strip_prefix("trading-bot-") {
+                name = rest.to_string();
+            } else if let Some(rest) = name.strip_suffix("-trading-bot") {
+                name = rest.to_string();
+            }
+        }
         _ => {}
     }
 
@@ -160,7 +169,10 @@ pub fn derive_command_name(method: &str, group: &str) -> String {
 /// Derives a safety tier from the method path.
 pub fn derive_safety_tier(method: &str) -> &'static str {
     // Dangerous operations
-    if method == "private/create-withdrawal" || method == "private/fiat/fiat-create-withdraw" {
+    if method == "private/create-withdrawal"
+        || method == "private/fiat/fiat-create-withdraw"
+        || method == "private/bot/terminate-trading-bot"
+    {
         return "dangerous";
     }
 
@@ -802,6 +814,7 @@ mod tests {
         assert_eq!(tag_to_group("OTC RFQ for Taker"), Some("otc"));
         assert_eq!(tag_to_group("Staking"), Some("staking"));
         assert_eq!(tag_to_group("Fiat Wallet"), Some("fiat"));
+        assert_eq!(tag_to_group("Trading Bot API"), Some("bot"));
     }
 
     #[test]
@@ -1139,6 +1152,28 @@ mod tests {
             derive_command_name("private/get-transactions", "history"),
             "transactions"
         );
+
+        // Bot
+        assert_eq!(
+            derive_command_name("private/bot/terminate-trading-bot", "bot"),
+            "terminate"
+        );
+        assert_eq!(
+            derive_command_name("private/bot/update-trading-bot", "bot"),
+            "update"
+        );
+        assert_eq!(
+            derive_command_name("private/bot/pause-trading-bot", "bot"),
+            "pause"
+        );
+        assert_eq!(
+            derive_command_name("private/bot/resume-trading-bot", "bot"),
+            "resume"
+        );
+        assert_eq!(
+            derive_command_name("private/bot/get-trading-bot-executions", "bot"),
+            "executions"
+        );
     }
 
     #[test]
@@ -1157,6 +1192,15 @@ mod tests {
             "mutate"
         );
         assert_eq!(derive_safety_tier("private/user-balance"), "read");
+        assert_eq!(
+            derive_safety_tier("private/bot/terminate-trading-bot"),
+            "dangerous"
+        );
+        assert_eq!(
+            derive_safety_tier("private/bot/create-trading-bot"),
+            "mutate"
+        );
+        assert_eq!(derive_safety_tier("private/bot/get-trading-bots"), "read");
     }
 
     #[test]
@@ -1166,6 +1210,10 @@ mod tests {
             "Public market data endpoints"
         );
         assert_eq!(group_description_for("otc"), "OTC RFQ trading endpoints");
+        assert_eq!(
+            group_description_for("bot"),
+            "Automated trading bot management"
+        );
         assert_eq!(group_description_for("unknown"), "API endpoints");
     }
 
