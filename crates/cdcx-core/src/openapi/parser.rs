@@ -661,10 +661,8 @@ fn extract_parameters(
                             .get("description")
                             .and_then(|d| d.as_str())
                             .unwrap_or_default();
-                        let raw_type = val
-                            .get("type")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or_else(|| {
+                        let raw_type =
+                            val.get("type").and_then(|t| t.as_str()).unwrap_or_else(|| {
                                 if val.get("oneOf").is_some() || val.get("anyOf").is_some() {
                                     "object"
                                 } else {
