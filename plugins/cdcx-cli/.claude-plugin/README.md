@@ -50,6 +50,7 @@ cdcx mcp config --reset              # Reset to defaults
 | `advanced` | Yes | OCO, OTO, OTOCO compound orders |
 | `margin` | Yes | Margin transfers, leverage |
 | `staking` | Yes | Stake/unstake operations |
+| `bot` | Yes | Trading bot management (DCA, TWAP, GRID, FUNDING_ARBITRAGE) |
 | `funding` | Yes | Withdrawals (requires `--allow-dangerous`) |
 | `fiat` | Yes | Fiat operations (requires `--allow-dangerous`) |
 

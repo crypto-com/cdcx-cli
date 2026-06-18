@@ -242,6 +242,7 @@ cdcx mcp config --reset                     # Reset to defaults (market only)
 | `funding` | wallet | No | dangerous | Withdrawals and fund transfers |
 | `fiat` | fiat | No | dangerous | Fiat deposits/withdrawals |
 | `otc` | otc | No | mutate | OTC desk operations |
+| `bot` | bot | No | mutate/dangerous | Trading bot management (DCA, TWAP, GRID, FUNDING_ARBITRAGE) |
 | `stream` | stream | No | mixed | WebSocket subscriptions |
 
 ### Example Configurations
