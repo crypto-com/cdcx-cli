@@ -368,6 +368,32 @@ impl MarketTab {
         format!("book.{}.{}", self.detail_instrument, self.book_depth)
     }
 
+    /// Build a `TradePrefill` from the current `book_cursor` position,
+    /// reading price + qty straight from the raw book JSON at the cursor's
+    /// level. Returns `None` if the cursor is inactive, the book hasn't
+    /// arrived, or the level has no usable price/qty strings.
+    ///
+    /// Side flip: an Ask cursor means the user wants to *buy from* that
+    /// ask → `side = "BUY"`. Bid cursor → `side = "SELL"`. Documented in
+    /// the test `prefill_side_flips_*` cases.
+    fn build_prefill_from_cursor(&self) -> Option<crate::workflows::TradePrefill> {
+        let cursor = self.book_cursor?;
+        let book = self.book_data.as_ref()?.get("data")?.as_array()?.first()?;
+        let (side_key, side_str, idx) = match cursor {
+            BookCursor::Ask(i) => ("asks", "BUY", i),
+            BookCursor::Bid(i) => ("bids", "SELL", i),
+        };
+        let level = book.get(side_key)?.as_array()?.get(idx)?;
+        let arr = level.as_array()?;
+        let price = arr.first()?.as_str()?.to_string();
+        let qty = arr.get(1)?.as_str()?.to_string();
+        Some(crate::workflows::TradePrefill {
+            side: side_str,
+            price,
+            qty,
+        })
+    }
+
     /// Re-validate `book_cursor` against the current level counts. Called
     /// after each `book_data` refresh — depth changes and WS snapshots can
     /// shrink either side, and a cursor pointing past the end would render
@@ -708,6 +734,20 @@ impl Tab for MarketTab {
                     }
                     KeyCode::Down => self.cursor_move_down(),
                     KeyCode::Up => self.cursor_move_up(),
+                    KeyCode::Enter => {
+                        // Enter with a cursor active → stage a trade prefill
+                        // for app.rs to materialize into a workflow modal.
+                        // Without a cursor, Enter is inert on Detail (nothing
+                        // selectable to trade against yet).
+                        if let Some(prefill) = self.build_prefill_from_cursor() {
+                            state.pending_trade_from_book =
+                                Some((self.detail_instrument.clone(), prefill));
+                            self.book_cursor = None;
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     KeyCode::Char('k') => {
                         self.book_cursor = None;
                         self.enter_chart(state);
@@ -2069,5 +2109,73 @@ mod tests {
         assert_eq!(bps_from_mid(101.0, 100.0), 100.0); // +1% = +100 bps
         assert_eq!(bps_from_mid(99.0, 100.0), -100.0);
         assert_eq!(bps_from_mid(100.0, 0.0), 0.0);
+    }
+
+    // ---- Enter-on-cursor → prefill (Issue #34) ----
+
+    /// Ready a Market tab with a fake book + cursor for the prefill tests.
+    /// Mirrors the shape that `public/get-book` returns so the same code
+    /// path (`self.book_data.get("data")[0]["asks"|"bids"]`) is exercised.
+    fn tab_with_book_and_cursor(cursor: BookCursor) -> MarketTab {
+        let mut tab = MarketTab::new();
+        tab.detail_instrument = "BTC_USDT".into();
+        tab.view_mode = ViewMode::Detail;
+        tab.book_data = Some(serde_json::json!({
+            "data": [{
+                "asks": [["78550.2", "0.125"], ["78551.0", "0.300"], ["78552.5", "1.000"]],
+                "bids": [["78549.8", "0.075"], ["78549.0", "0.500"], ["78548.0", "2.000"]],
+            }]
+        }));
+        tab.book_cursor = Some(cursor);
+        tab
+    }
+
+    /// Ask cursor → BUY side. The user is inspecting "who's selling at
+    /// this price" — Enter should set them up to buy into that offer.
+    #[test]
+    fn prefill_side_flips_buy_for_ask() {
+        let tab = tab_with_book_and_cursor(BookCursor::Ask(1));
+        let prefill = tab.build_prefill_from_cursor().expect("prefill present");
+        assert_eq!(prefill.side, "BUY");
+        assert_eq!(prefill.price, "78551.0");
+        assert_eq!(prefill.qty, "0.300");
+    }
+
+    /// Bid cursor → SELL side. User is inspecting liquidity on the bid;
+    /// Enter sets them up to sell into that bid.
+    #[test]
+    fn prefill_side_flips_sell_for_bid() {
+        let tab = tab_with_book_and_cursor(BookCursor::Bid(2));
+        let prefill = tab.build_prefill_from_cursor().expect("prefill present");
+        assert_eq!(prefill.side, "SELL");
+        assert_eq!(prefill.price, "78548.0");
+        assert_eq!(prefill.qty, "2.000");
+    }
+
+    /// No cursor → no prefill. Enter on Detail without ↑↓ pressed first
+    /// must not accidentally open a workflow with stale state.
+    #[test]
+    fn prefill_returns_none_when_cursor_inactive() {
+        let mut tab = tab_with_book_and_cursor(BookCursor::Ask(0));
+        tab.book_cursor = None;
+        assert!(tab.build_prefill_from_cursor().is_none());
+    }
+
+    /// Book hasn't arrived yet → no prefill. Defends against a race
+    /// between entering Detail and the first REST snapshot landing.
+    #[test]
+    fn prefill_returns_none_when_book_empty() {
+        let mut tab = tab_with_book_and_cursor(BookCursor::Ask(0));
+        tab.book_data = None;
+        assert!(tab.build_prefill_from_cursor().is_none());
+    }
+
+    /// Cursor points past the end of its side → None rather than panic.
+    /// The `clamp_book_cursor` path normally prevents this, but we defend
+    /// at the leaf in case a clamp is skipped or races a book update.
+    #[test]
+    fn prefill_returns_none_when_cursor_out_of_bounds() {
+        let tab = tab_with_book_and_cursor(BookCursor::Ask(99));
+        assert!(tab.build_prefill_from_cursor().is_none());
     }
 }

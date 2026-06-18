@@ -101,10 +101,21 @@ pub fn draw_detail(
     // Footer
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            format!(
-                "Esc:back  \u{2191}\u{2193}:level  k:chart  D:depth({})  t:trade",
-                book_depth
-            ),
+            // Footer content shifts when the cursor is active: Enter
+            // becomes meaningful (trade at selected level) and takes
+            // priority over the trade-anywhere 't' binding. Users without
+            // an active cursor see the original hint.
+            if book_cursor.is_some() {
+                format!(
+                    "Esc:clear  \u{2191}\u{2193}:level  Enter:trade@level  k:chart  D:depth({})",
+                    book_depth
+                )
+            } else {
+                format!(
+                    "Esc:back  \u{2191}\u{2193}:level  k:chart  D:depth({})  t:trade",
+                    book_depth
+                )
+            },
             Style::default().fg(state.theme.colors.muted),
         ))),
         footer_area,

@@ -317,6 +317,7 @@ pub async fn run(opts: TuiOptions) -> Result<(), Box<dyn std::error::Error>> {
         volume_unit: crate::state::VolumeUnit::Usd,
         pending_navigation: None,
         pending_return_tab: None,
+        pending_trade_from_book: None,
         isolated_positions: std::collections::HashMap::new(),
         positions_snapshot: Vec::new(),
         update_notice: None,
