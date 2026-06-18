@@ -149,7 +149,7 @@ pub async fn dispatch_dynamic(
 
     // Validate required params when --json is not provided (--json may supply them)
     if global.json_input.is_none() {
-        let obj = params.as_object().map(|o| o.clone()).unwrap_or_default();
+        let obj = params.as_object().cloned().unwrap_or_default();
         let missing: Vec<String> = endpoint
             .params
             .iter()
