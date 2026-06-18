@@ -2,7 +2,7 @@
 
 A CLI, MCP server, and terminal dashboard for the [Crypto.com Exchange API](https://exchange-docs.crypto.com/exchange/v1/rest-ws/index.html). Single binary, zero runtime dependencies.
 
-86 REST endpoints across 10 API groups, dynamically generated from the Crypto.com Exchange OpenAPI spec. Real-time WebSocket streaming. Full-screen TUI dashboard. Paper trading. Works as a standalone CLI, an MCP tool server for AI agents, or an interactive terminal.
+95 REST endpoints across 11 API groups, dynamically generated from the Crypto.com Exchange OpenAPI spec. Real-time WebSocket streaming. Full-screen TUI dashboard. Paper trading. Works as a standalone CLI, an MCP tool server for AI agents, or an interactive terminal.
 
 > **Caution:** This software interacts with the live Crypto.com Exchange and can execute real financial transactions. Test with `cdcx paper` before using real funds.
 
@@ -24,7 +24,7 @@ cargo install --git https://github.com/crypto-com/cdcx-cli.git --bin cdcx
 
 ### For AI Agents
 
-Every response is structured JSON. 86 MCP tools with typed parameters, enum validation, safety enforcement, and schema discovery — all generated from the OpenAPI spec at runtime. Your LLM can trade, analyze markets, and manage positions without custom tooling.
+Every response is structured JSON. 95 MCP tools with typed parameters, enum validation, safety enforcement, and schema discovery — all generated from the OpenAPI spec at runtime. Your LLM can trade, analyze markets, manage positions, and orchestrate trading bots without custom tooling.
 
 ```bash
 cdcx mcp config --enable trade,account
@@ -104,7 +104,7 @@ cdcx mcp config --allow-dangerous           # Allow withdrawals, cancel-all
 cdcx mcp config --reset                     # Reset to defaults (market only)
 ```
 
-Service groups: `market`, `account`, `trade`, `advanced`, `margin`, `staking`, `funding`, `fiat`, `otc`, `stream`
+Service groups: `market`, `account`, `trade`, `advanced`, `margin`, `staking`, `funding`, `fiat`, `otc`, `bot`, `stream`
 
 Configuration is stored in `~/.config/cdcx/mcp.toml` and persists across updates.
 
@@ -115,9 +115,9 @@ Configuration is stored in `~/.config/cdcx/mcp.toml` and persists across updates
 | Tier | Behavior | Examples |
 |------|----------|---------|
 | **read** | No confirmation | `market ticker`, `market book` |
-| **sensitive_read** | No confirmation | `account summary`, `trade open-orders` |
-| **mutate** | Requires `acknowledged: true` | `trade order`, `trade cancel` |
-| **dangerous** | Requires `--allow-dangerous` | `trade cancel-all`, `wallet withdraw` |
+| **sensitive_read** | No confirmation | `account summary`, `bot list` |
+| **mutate** | Requires `acknowledged: true` | `trade order`, `bot create`, `bot pause` |
+| **dangerous** | Requires `--allow-dangerous` | `trade cancel-all`, `bot terminate`, `wallet withdraw` |
 
 ### Plugin Installation
 
@@ -244,6 +244,20 @@ cdcx advanced create-oto --instrument-name BTC_USDT ...
 cdcx advanced create-otoco --instrument-name BTC_USDT ...
 cdcx advanced open-orders
 ```
+
+### Trading Bots
+
+```bash
+cdcx bot create DCA --notify-on-bot-change true --json '{"settings": {"is_basket": false, "allocations": [{"instrument_name": "BTC_USDT", "allocated_percentage": "100"}], "investment_currency": "USDT", "side": "BUY", "type": "MARKET", "quantity": "0.01", "investment_frequency_mode": "FIXED_DURATION", "investment_frequency": 300000, "max_order": "10"}}'
+cdcx bot list --bot-types DCA --state RUNNING
+cdcx bot pause 123 --bot-type DCA
+cdcx bot resume 123 --bot-type DCA
+cdcx bot update 123 --bot-type GRID --json '{"settings": {"stop_price": "50000"}}'
+cdcx bot executions 123
+cdcx bot terminate 123 --bot-type DCA
+```
+
+Bot types: `DCA`, `TWAP`, `GRID`, `FUNDING_ARBITRAGE`. Complex settings are passed via `--json`.
 
 ### Paper Trading
 

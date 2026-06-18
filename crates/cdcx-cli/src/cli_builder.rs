@@ -109,6 +109,11 @@ pub fn extract_params(matches: &clap::ArgMatches, params: &[ParamSchema]) -> ser
                     serde_json::json!(value_str)
                 }
             }
+            "boolean" => match value_str.as_str() {
+                "true" | "1" => serde_json::json!(true),
+                "false" | "0" => serde_json::json!(false),
+                _ => serde_json::json!(value_str),
+            },
             "json" => {
                 serde_json::from_str(value_str).unwrap_or_else(|_| serde_json::json!(value_str))
             }

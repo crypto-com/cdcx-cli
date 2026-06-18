@@ -147,6 +147,55 @@ pub async fn dispatch_dynamic(
     // Extract params from ArgMatches using schema types
     let mut params = cli_builder::extract_params(cmd_matches, &endpoint.params);
 
+    // Validate required params when --json is not provided (--json may supply them)
+    if global.json_input.is_none() {
+        let obj = params.as_object().cloned().unwrap_or_default();
+        let missing: Vec<String> = endpoint
+            .params
+            .iter()
+            .filter(|p| p.required && !obj.contains_key(&p.name))
+            .map(|p| {
+                if p.position.is_some() {
+                    format!("<{}>", p.name)
+                } else {
+                    format!("--{} <{}>", p.name.replace('_', "-"), p.name)
+                }
+            })
+            .collect();
+        if !missing.is_empty() {
+            let usage_args: String = endpoint
+                .params
+                .iter()
+                .filter(|p| p.required)
+                .map(|p| {
+                    if p.position.is_some() {
+                        format!("<{}>", p.name)
+                    } else {
+                        format!("--{} <{}>", p.name.replace('_', "-"), p.name)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            let cmd_name: &'static str =
+                Box::leak(format!("cdcx {} {}", group, command).into_boxed_str());
+            let usage: &'static str =
+                Box::leak(format!("cdcx {} {} {}", group, command, usage_args).into_boxed_str());
+            let mut cmd = clap::Command::new(cmd_name).override_usage(usage);
+            let err = cmd.error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+                format!(
+                    "the following required arguments were not provided:\n{}",
+                    missing
+                        .iter()
+                        .map(|m| format!("  {}", m))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ),
+            );
+            err.exit();
+        }
+    }
+
     // Stamp client_oid with the cx1- CLI origin prefix so orders placed via `cdcx`
     // are identifiable downstream. Both create-order and advanced/create-order use
     // a scalar client_oid; create-order-list puts client_oid on each leg.

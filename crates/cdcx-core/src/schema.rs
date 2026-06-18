@@ -134,6 +134,7 @@ impl SchemaRegistry {
             include_str!("../../../schemas/apis/staking.toml"),
             include_str!("../../../schemas/apis/margin.toml"),
             include_str!("../../../schemas/apis/history.toml"),
+            include_str!("../../../schemas/apis/bot.toml"),
         ]
         .iter()
         .map(|s| {

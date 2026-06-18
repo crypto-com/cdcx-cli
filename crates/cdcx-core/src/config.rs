@@ -207,6 +207,7 @@ pub const MCP_SERVICE_GROUPS: &[(&str, &str)] = &[
     ("funding", "Withdrawals (dangerous)"),
     ("fiat", "Fiat operations (dangerous)"),
     ("otc", "OTC desk operations"),
+    ("bot", "Trading bot management"),
     ("stream", "Real-time data streams"),
 ];
 

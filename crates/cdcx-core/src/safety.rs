@@ -23,7 +23,8 @@ impl SafetyTier {
             "private/cancel-all-orders"
             | "private/advanced/cancel-all-orders"
             | "private/create-withdrawal"
-            | "private/fiat/fiat-create-withdraw" => Self::Dangerous,
+            | "private/fiat/fiat-create-withdraw"
+            | "private/bot/terminate-trading-bot" => Self::Dangerous,
 
             // Mutate operations
             "private/create-order"
@@ -50,7 +51,11 @@ impl SafetyTier {
             | "private/staking/stake"
             | "private/staking/unstake"
             | "private/staking/convert"
-            | "private/create-subaccount-transfer" => Self::Mutate,
+            | "private/create-subaccount-transfer"
+            | "private/bot/create-trading-bot"
+            | "private/bot/update-trading-bot"
+            | "private/bot/pause-trading-bot"
+            | "private/bot/resume-trading-bot" => Self::Mutate,
 
             // Everything else that's private is SensitiveRead
             _ => Self::SensitiveRead,
@@ -149,6 +154,35 @@ mod tests {
         assert_eq!(
             SafetyTier::from_method("private/create-withdrawal"),
             SafetyTier::Dangerous
+        );
+        // Bot endpoints
+        assert_eq!(
+            SafetyTier::from_method("private/bot/create-trading-bot"),
+            SafetyTier::Mutate
+        );
+        assert_eq!(
+            SafetyTier::from_method("private/bot/update-trading-bot"),
+            SafetyTier::Mutate
+        );
+        assert_eq!(
+            SafetyTier::from_method("private/bot/pause-trading-bot"),
+            SafetyTier::Mutate
+        );
+        assert_eq!(
+            SafetyTier::from_method("private/bot/resume-trading-bot"),
+            SafetyTier::Mutate
+        );
+        assert_eq!(
+            SafetyTier::from_method("private/bot/terminate-trading-bot"),
+            SafetyTier::Dangerous
+        );
+        assert_eq!(
+            SafetyTier::from_method("private/bot/get-trading-bots"),
+            SafetyTier::SensitiveRead
+        );
+        assert_eq!(
+            SafetyTier::from_method("private/bot/get-trading-bot-executions"),
+            SafetyTier::SensitiveRead
         );
     }
 

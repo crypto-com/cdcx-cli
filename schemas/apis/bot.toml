@@ -1,0 +1,54 @@
+[group]
+name = "bot"
+
+[[endpoints]]
+method = "private/bot/create-trading-bot"
+command = "create"
+
+[[endpoints.params]]
+name = "bot_type"
+position = 0
+
+[[endpoints]]
+method = "private/bot/terminate-trading-bot"
+command = "terminate"
+
+[[endpoints.params]]
+name = "bot_id"
+position = 0
+
+[[endpoints]]
+method = "private/bot/update-trading-bot"
+command = "update"
+
+[[endpoints.params]]
+name = "bot_id"
+position = 0
+
+[[endpoints]]
+method = "private/bot/pause-trading-bot"
+command = "pause"
+
+[[endpoints.params]]
+name = "bot_id"
+position = 0
+
+[[endpoints]]
+method = "private/bot/resume-trading-bot"
+command = "resume"
+
+[[endpoints.params]]
+name = "bot_id"
+position = 0
+
+[[endpoints]]
+method = "private/bot/get-trading-bots"
+command = "list"
+
+[[endpoints]]
+method = "private/bot/get-trading-bot-executions"
+command = "executions"
+
+[[endpoints.params]]
+name = "bot_id"
+position = 0

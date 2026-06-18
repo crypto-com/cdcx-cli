@@ -17,9 +17,10 @@ pub fn mcp_to_schema_groups(mcp_group: &str) -> Vec<&'static str> {
         "fiat" => vec!["fiat"],
         "stream" => vec!["stream"], // stream tools aren't in schema yet
         "otc" => vec!["otc"],
+        "bot" => vec!["bot"],
         "all" => vec![
             "market", "account", "history", "trade", "advanced", "wallet", "fiat", "staking",
-            "margin", "otc",
+            "margin", "otc", "bot",
         ],
         _ => vec![],
     }
@@ -159,6 +160,7 @@ mod tests {
         assert_eq!(mcp_to_schema_groups("account"), vec!["account", "history"]);
         assert_eq!(mcp_to_schema_groups("funding"), vec!["wallet"]);
         assert_eq!(mcp_to_schema_groups("fiat"), vec!["fiat"]);
+        assert_eq!(mcp_to_schema_groups("bot"), vec!["bot"]);
         assert!(mcp_to_schema_groups("unknown").is_empty());
     }
 
@@ -210,12 +212,40 @@ mod tests {
         assert!(tools.iter().any(|t| t.name.starts_with("cdcx_account_")));
         assert!(tools.iter().any(|t| t.name.starts_with("cdcx_funding_")));
         assert!(tools.iter().any(|t| t.name.starts_with("cdcx_fiat_")));
+        assert!(tools.iter().any(|t| t.name.starts_with("cdcx_bot_")));
 
         // Should have tools from all fixture groups
         assert!(
             tools.len() >= 10,
             "Should have at least 10 tools, got {}",
             tools.len()
+        );
+    }
+
+    #[test]
+    fn test_tool_generation_bot_group() {
+        let registry =
+            SchemaRegistry::from_fixture_with_overlays().expect("Failed to parse fixture");
+        let tools = generate_tools(&registry, &["bot".to_string()]);
+
+        assert!(tools.iter().any(|t| t.name == "cdcx_bot_create"));
+        assert!(tools.iter().any(|t| t.name == "cdcx_bot_terminate"));
+        assert!(tools.iter().any(|t| t.name == "cdcx_bot_list"));
+        assert!(tools.iter().any(|t| t.name == "cdcx_bot_executions"));
+
+        // terminate is dangerous — should have acknowledged param
+        let terminate_tool = tools
+            .iter()
+            .find(|t| t.name == "cdcx_bot_terminate")
+            .unwrap();
+        let schema_obj = terminate_tool.input_schema.as_ref();
+        let properties = schema_obj
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .expect("Should have properties");
+        assert!(
+            properties.contains_key("acknowledged"),
+            "Dangerous tool should have acknowledged parameter"
         );
     }
 
