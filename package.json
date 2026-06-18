@@ -1,6 +1,6 @@
 {
   "name": "@cryptocom/cdcx-cli",
-  "version": "1.2.5",
+  "version": "1.2.6",
   "description": "MCP server for crypto.com exchange CLI",
   "author": "Crypto.com",
   "homepage": "https://github.com/crypto-com/cdcx-cli",
